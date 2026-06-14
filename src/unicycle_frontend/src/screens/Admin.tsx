@@ -8,7 +8,7 @@ import { Principal } from '@icp-sdk/core/principal';
 import { createUnicycleBackendActor } from '../auth/actor';
 import { Panel, Field, KV, StatusBadge, Modal, Empty, Tabs, ErrorText, TC } from '../ui/primitives';
 import { Icon } from '../ui/icons';
-import { fmtAgo, fmtICP, fmtInt, fmtPid, healthStatus, nsToMs, type UserError } from '../ui/format';
+import { fmtAgo, fmtICP, fmtInt, fmtPid, fmtTC, healthStatus, nsToMs, type UserError } from '../ui/format';
 import { useNow } from '../ui/now';
 import { useToast } from '../ui/toast';
 import { useAdminSettings } from '../admin/useAdminSettings';
@@ -16,6 +16,7 @@ import { useAdmins } from '../admin/useAdmins';
 import { useAdminVisibility } from '../admin/useAdminVisibility';
 import { useServiceConfig } from '../admin/useServiceConfig';
 import { useFundLp } from '../admin/useFundLp';
+import { useLpPoolBalances } from '../canisters/useLpPoolBalances';
 import { parseDecimalAmount } from '../wallet/format';
 import { AdminTrends } from './AdminTrends';
 import { AdminLogs } from './AdminLogs';
@@ -134,6 +135,29 @@ function AddAdminModal({
         />
       </Field>
     </Modal>
+  );
+}
+
+// Spot pool price as human "TC per ICP" from the X96 sqrt price. token0 = ICP
+// (8 dp), token1 = TCYCLES (12 dp): price_raw (TC_e12 per ICP_e8) = (sqrtP/2^96)^2,
+// and TC-per-ICP = price_raw * 1e8 / 1e12. Display-only, so float is fine.
+function tcPerIcpFromSqrt(sqrtPriceX96: bigint): number {
+  const sp = Number(sqrtPriceX96) / 2 ** 96;
+  return (sp * sp * 1e8) / 1e12;
+}
+
+// One labelled ICP/TC pair in the position-balances row.
+function PoolBalCell({ label, icp, tc }: { label: string; icp: bigint; tc: bigint }) {
+  return (
+    <div>
+      <div className="eyebrow" style={{ marginBottom: 5 }}>{label}</div>
+      <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
+        {fmtICP(icp, 4)} <span className="faint" style={{ fontSize: 10 }}>ICP</span>
+      </div>
+      <div className="mono" style={{ fontSize: 14, fontWeight: 600 }}>
+        <TC raw={tc} /> <span className="faint" style={{ fontSize: 10 }}>TC</span>
+      </div>
+    </div>
   );
 }
 
@@ -272,6 +296,11 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
       cancelled = true;
     };
   }, [identity, infoTick]);
+
+  // Live ICPSwap position/pool balances — read directly from the pool, not the
+  // backend (see useLpPoolBalances). Keyed off the position id from `lp` and the
+  // same `infoTick` the Refresh button bumps.
+  const poolBal = useLpPoolBalances(identity, lp?.lpPositionId, infoTick);
 
   const harvest = async () => {
     try {
@@ -572,6 +601,27 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
               </div>
             </div>
           </div>
+          {lp?.lpPositionId !== undefined && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Position balances // live from pool</div>
+              {poolBal.error ? (
+                <div className="faint" style={{ fontSize: 11.5 }}>Pool read failed: {poolBal.error}</div>
+              ) : !poolBal.data ? (
+                <div className="faint" style={{ fontSize: 11.5 }}>{poolBal.loading ? 'Loading…' : '—'}</div>
+              ) : (
+                <>
+                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '0 16px' }}>
+                    <PoolBalCell label="In position" icp={poolBal.data.positionIcp} tc={poolBal.data.positionTcycles} />
+                    <PoolBalCell label="Unused (not in pool)" icp={poolBal.data.unusedIcp} tc={poolBal.data.unusedTcycles} />
+                    <PoolBalCell label="Unclaimed fees" icp={poolBal.data.unclaimedIcp} tc={poolBal.data.unclaimedTcycles} />
+                  </div>
+                  <div className="faint mono" style={{ fontSize: 11, marginTop: 6 }}>
+                    pool price ≈ 1 ICP : {fmtTC(tcPerIcpFromSqrt(poolBal.data.sqrtPriceX96), 2)} TC
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <Field
             label="Fund position from wallet"
             hint="TCYCLES — adds liquidity to the position; reward share unchanged"
