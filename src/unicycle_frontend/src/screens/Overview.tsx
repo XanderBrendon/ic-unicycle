@@ -575,7 +575,11 @@ export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
             { value: tcEquivNum === null ? '—' : fmtTC(tcEquivNum), caption: '≈ TC total', color: 'var(--accent-ink)' },
           ]}
           sub={<><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
-        />
+        >
+          <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
+            ICP→TC rate is based on the current swap price and may change unpredictably.
+          </div>
+        </TripleCell>
         <KpiCell
           label="Deposit runway"
           value={runwayValue}
