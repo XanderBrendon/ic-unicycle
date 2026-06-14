@@ -11,12 +11,32 @@ const MAX_TIME_TO_LIVE_NS = BigInt(8) * BigInt(3_600_000_000_000);
 // See the `internet-identity` skill's "Using II during local development".
 const II_PROVIDER_URL = 'https://id.ai/authorize';
 
+// Canonical origin every principal is derived from. By pinning the derivation
+// origin to the frontend canister's own URL (production frontend id, see
+// .icp/data/mappings/production.ids.json), a user's principal is identical
+// whether they reach the app through the canister URL or a custom domain
+// (ic-unicycle.com), and it stays fixed across any future domain change. The
+// custom domain is authorized for this via /.well-known/ii-alternative-origins
+// served from this canister.
+const CANISTER_ORIGIN = 'https://2fdf7-yyaaa-aaaan-q6h5q-cai.icp0.io';
+
+// Skip the derivation origin during local dev: mainnet II would reject a
+// localhost origin that isn't listed in the production ii-alternative-origins
+// file. Local sessions keep their (throwaway) origin-derived principal.
+function getDerivationOrigin(): string | undefined {
+  const host = window.location.hostname;
+  const isLocal =
+    host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
+  return isLocal ? undefined : CANISTER_ORIGIN;
+}
+
 let client: AuthClient | undefined;
 
 export function getAuthClient(): AuthClient {
   if (!client) {
     client = new AuthClient({
       identityProvider: II_PROVIDER_URL,
+      derivationOrigin: getDerivationOrigin(),
       idleOptions: { disableIdle: true },
     });
   }

@@ -42,4 +42,23 @@
       "X-XSS-Protection": "1; mode=block",
     },
   },
+
+  // Custom-domain ownership + Internet Identity alternative-origins files. The
+  // asset uploader skips dot-directories by default, so `.well-known` must be
+  // explicitly un-ignored or these files never get deployed.
+  {
+    "match": ".well-known",
+    "ignore": false,
+  },
+
+  // Internet Identity fetches this cross-origin (from id.ai) when resolving the
+  // derivation origin, so it needs a permissive CORS header and a JSON type.
+  {
+    "match": ".well-known/ii-alternative-origins",
+    "headers": {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    },
+    "ignore": false,
+  },
 ]
