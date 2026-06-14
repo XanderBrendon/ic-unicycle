@@ -206,10 +206,9 @@ export function ErrorHint({ message, detail, command }: { message: ReactNode; de
             alignItems: 'center',
             gap: 8,
             overflowWrap: 'anywhere',
-            userSelect: 'all',
           }}
         >
-          <span style={{ flex: 1 }}>{command}</span>
+          <span style={{ flex: 1, userSelect: 'all' }}>{command}</span>
           <button
             className="iconbtn"
             style={{ width: 22, height: 22, border: 'none', background: 'transparent', flex: 'none' }}
