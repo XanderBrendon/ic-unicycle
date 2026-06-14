@@ -3,8 +3,15 @@
    Monochrome + single sharp accent. Light/dark. Density-aware.
    ============================================================ */
 
-/* ---- Fonts ---- */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+/* ---- Fonts (self-hosted via @fontsource — no third-party origin, keeps CSP tight) ---- */
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/jetbrains-mono/700.css';
 
 /* ---- Theme tokens ---- */
 :root {

@@ -11,6 +11,12 @@ importers:
       '@dfinity/utils':
         specifier: ^4.2.1
         version: 4.2.1(@icp-sdk/core@5.4.0)
+      '@fontsource/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource/space-grotesk':
+        specifier: ^5.2.10
+        version: 5.2.10
       '@icp-sdk/auth':
         specifier: ^7.0.0
         version: 7.0.0(@icp-sdk/core@5.4.0)
@@ -64,6 +70,12 @@ packages:
 
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
+
+  '@fontsource/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
+
+  '@fontsource/space-grotesk@5.2.10':
+    resolution: {integrity: sha512-XNXEbT74OIITPqw2H6HXwPDp85fy43uxfBwFR5PU+9sLnjuLj12KlhVM9nZVN6q6dlKjkuN8JisW/OBxwxgUew==}
 
   '@icp-sdk/auth@7.0.0':
     resolution: {integrity: sha512-FkNzd/ayptPByWebY0GWnDZB27EXfzxiIxjUdDZ7bl1V55s5ghHQ/4lwnUAjrvT8dwdi7xZwIoYEDMvlkHCTSw==}
@@ -479,6 +491,10 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@fontsource/jetbrains-mono@5.2.8': {}
+
+  '@fontsource/space-grotesk@5.2.10': {}
 
   '@icp-sdk/auth@7.0.0(@icp-sdk/core@5.4.0)':
     dependencies:

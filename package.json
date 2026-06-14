@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@dfinity/utils": "^4.2.1",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
     "@icp-sdk/auth": "^7.0.0",
     "@icp-sdk/canisters": "^3.6.0",
     "@icp-sdk/core": "^5.4.0",
