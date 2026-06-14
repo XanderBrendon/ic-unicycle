@@ -1,0 +1,42 @@
+# Various IDEs and Editors
+.vscode/
+.idea/
+**/*~
+
+# Mac OSX temporary files
+.DS_Store
+**/.DS_Store
+
+# Node / pnpm
+node_modules/
+
+# Vite build output (the asset canister consumes this directly)
+src/unicycle_frontend/dist/
+
+# Generated Candid bindings (regenerated at frontend build time)
+src/unicycle_frontend/src/bindings/
+
+# Motoko / mops local cache (mops.lock is committed; .mops/ is not)
+.mops/
+*.wasm
+
+# icp-cli local cache (safe to delete, rebuilt on next build/deploy).
+# Do NOT ignore .icp/data/ — it stores mainnet canister ID mappings.
+.icp/cache/
+
+# Environment variables
+.env
+
+# Vendored blackhole build artifact. The *.wasm rule above would otherwise
+# exclude it; the WASM and .did are committed (rebuilt via
+# unicycle_blackhole/scripts/vendor-to-unicycle.sh).
+!vendor/blackhole/balance_checker.wasm
+
+# Vendored DFINITY ICRC-1 ledger (local-only US19 test fixture). Same story as
+# the blackhole wasm above — committed so `icp deploy` works without a download.
+# Source: github.com/dfinity/ic release ledger-suite-icrc-2026-03-09.
+!vendor/icrc1/icrc1_ledger.wasm
+
+# Claude Code per-user permissions
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

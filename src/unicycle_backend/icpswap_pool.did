@@ -1,0 +1,71 @@
+// Narrow vendored subset of the ICPSwap V3 SwapPool candid interface.
+//
+// Source of truth: https://github.com/ICPSwap-Labs/icpswap-v3-service
+//   - `src/SwapPool.mo` (actor methods)
+//   - `src/Types.mo`    (argument records and `Error` variant)
+//
+// Pinned to upstream `main` at the time of US12 (the upstream repo predates
+// candid file vendoring; the Motoko sources cited above are the canonical
+// type definitions). Hand-typed rather than `didc bind`-generated because the
+// full upstream service exposes ~30 methods that US12 has no consumer for;
+// Motoko's structural subtyping on actor references lets the backend declare
+// a narrow inline reference covering only the five methods listed below.
+//
+// SYNC: this .did is the canonical interface contract for both the local
+// stub (`vendor/icpswap/icpswap_pool_stub.mo`) and the production ICPSwap V3
+// pool (`pejtq-ciaaa-aaaar-qb5wq-cai`, the ICP/CYCLES pool). The backend
+// references the pool via an inline `actor { ... }` reference whose shape
+// mirrors this file (see `src/unicycle_backend/main.mo`).
+
+type PoolToken = record {
+  address : text;     // ICRC ledger principal id as text
+  standard : text;    // e.g. "ICRC1", "ICRC2"
+};
+
+type PoolMetadata = record {
+  token0 : PoolToken;
+  token1 : PoolToken;
+  fee : nat;
+  sqrtPriceX96 : nat;
+};
+
+type DepositArgs = record {
+  token : text;
+  amount : nat;
+  fee : nat;
+};
+
+// ICPSwap V3 uses Text for amountIn/amountOutMinimum because the upstream
+// pool's pricing math operates on a large fixed-point representation; the
+// candid wire format settled on decimal-string serialisation early. Callers
+// `Nat.toText` on the way in and `Nat.fromText` on the way out.
+type SwapArgs = record {
+  zeroForOne : bool;
+  amountIn : text;
+  amountOutMinimum : text;
+};
+
+type WithdrawToSubaccountArgs = record {
+  token : text;
+  fee : nat;
+  amount : nat;
+  subaccount : blob;
+};
+
+type Error = variant {
+  CommonError;
+  InternalError : text;
+  UnsupportedToken : text;
+  InsufficientFunds;
+};
+
+type Result_Nat = variant { ok : nat; err : Error };
+type Result_Metadata = variant { ok : PoolMetadata; err : Error };
+
+service : {
+  metadata : () -> (Result_Metadata) query;
+  quote : (SwapArgs) -> (Result_Nat) query;
+  depositFrom : (DepositArgs) -> (Result_Nat);
+  swap : (SwapArgs) -> (Result_Nat);
+  withdrawToSubaccount : (WithdrawToSubaccountArgs) -> (Result_Nat);
+};

@@ -1,0 +1,15 @@
+[toolchain]
+moc = "1.7.0"
+
+[dependencies]
+core = "2.3.1"
+
+[moc]
+args = [
+  "--default-persistent-actors",
+  "-W=M0236,M0237,M0223",
+  "-A=M0217"
+]
+
+[dev-dependencies]
+test = "2.1.2"

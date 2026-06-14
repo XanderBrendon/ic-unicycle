@@ -1,0 +1,63 @@
+// Vendored from https://github.com/dfinity/ICRC-1
+// Commit: 5d670e54d9a58fbf472bf0a25f33743d60cfd0e6
+// Path: standards/ICRC-1/ICRC-1.did
+//
+// This is the upstream ICRC-1 candid interface, captured here for review
+// provenance. The matching Motoko bindings live in src/unicycle_backend/icrc1.mo
+// and are imported in main.mo as `import ICRC1 "icrc1";`. Regenerate them
+// whenever this .did is bumped:
+//   didc bind -t mo src/unicycle_backend/icrc1.did > src/unicycle_backend/icrc1.mo
+// The generated icrc1.mo is committed so `icp deploy` doesn't need didc in PATH.
+
+// Number of nanoseconds since the UNIX epoch in UTC timezone.
+type Timestamp = nat64;
+
+// Number of nanoseconds between two [Timestamp]s.
+type Duration = nat64;
+
+type Subaccount = blob;
+
+type Account = record {
+    owner : principal;
+    subaccount : opt Subaccount;
+};
+
+type TransferArgs = record {
+    from_subaccount : opt Subaccount;
+    to : Account;
+    amount : nat;
+    fee : opt nat;
+    memo : opt blob;
+    created_at_time : opt Timestamp;
+};
+
+type TransferError = variant {
+    BadFee : record { expected_fee : nat };
+    BadBurn : record { min_burn_amount : nat };
+    InsufficientFunds : record { balance : nat };
+    TooOld;
+    CreatedInFuture: record { ledger_time : Timestamp };
+    Duplicate : record { duplicate_of : nat };
+    TemporarilyUnavailable;
+    GenericError : record { error_code : nat; message : text };
+};
+
+type Value = variant {
+    Nat : nat;
+    Int : int;
+    Text : text;
+    Blob : blob;
+};
+
+service : {
+    icrc1_metadata : () -> (vec record { text; Value; }) query;
+    icrc1_name : () -> (text) query;
+    icrc1_symbol : () -> (text) query;
+    icrc1_decimals : () -> (nat8) query;
+    icrc1_fee : () -> (nat) query;
+    icrc1_total_supply : () -> (nat) query;
+    icrc1_minting_account : () -> (opt Account) query;
+    icrc1_balance_of : (Account) -> (nat) query;
+    icrc1_transfer : (TransferArgs) -> (variant { Ok : nat; Err : TransferError });
+    icrc1_supported_standards : () -> (vec record { name : text; url : text }) query;
+}

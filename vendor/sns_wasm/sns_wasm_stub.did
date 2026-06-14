@@ -1,0 +1,12 @@
+type SnsWasmStub = 
+ service {
+   addSns: (governance: principal, root: principal) -> ();
+   list_deployed_snses: (record {}) ->
+    (record {instances: vec DeployedSns;}) query;
+ };
+type DeployedSns = 
+ record {
+   governance_canister_id: opt principal;
+   root_canister_id: opt principal;
+ };
+service : () -> SnsWasmStub

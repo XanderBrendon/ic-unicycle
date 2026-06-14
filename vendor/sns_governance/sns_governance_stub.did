@@ -1,0 +1,96 @@
+type SubmittedTransfer = 
+ record {
+   summary: text;
+   transfer: SnsTransferTreasuryFunds;
+ };
+type SubmittedMotion = 
+ record {
+   summary: text;
+   title: text;
+ };
+type SnsTransferTreasuryFunds = 
+ record {
+   amount_e8s: nat64;
+   from_treasury: int32;
+   memo: opt nat64;
+   to_principal: opt principal;
+   to_subaccount: opt SnsSubaccount;
+ };
+type SnsTopic = variant {ApplicationBusinessLogic;};
+type SnsSubaccount = record {subaccount: blob;};
+type SnsProposalId = record {id: nat64;};
+type SnsProposalArg = 
+ record {
+   action: opt SnsAction;
+   summary: text;
+   title: text;
+   url: text;
+ };
+type SnsNervousSystemFunction = 
+ record {
+   description: opt text;
+   function_type: opt SnsFunctionType;
+   id: nat64;
+   name: text;
+ };
+type SnsMotion = record {motion_text: text;};
+type SnsManageNeuronResponse = record {
+                                 command:
+                                  opt
+                                   variant {
+                                     Error: record {error_message: text;};
+                                     MakeProposal:
+                                      record {proposal_id: opt SnsProposalId;
+                                      };
+                                   };};
+type SnsManageNeuron = 
+ record {
+   command: opt variant {MakeProposal: SnsProposalArg;};
+   subaccount: blob;
+ };
+type SnsGovernanceStub = 
+ service {
+   addHotkey: (neuronId: blob, "principal": principal) -> ();
+   grantAdminOnBackend: (backend: principal, admin: principal) -> ();
+   invokeSnsSetup: (backend: principal, neuronId: blob, baseFunctionId:
+    nat64) -> ();
+   manage_neuron: (arg: SnsManageNeuron) -> (SnsManageNeuronResponse);
+   proposalCount: () -> (nat) query;
+   registerNeuronWithBackend: (backend: principal, neuronId: blob) -> ();
+   registeredFunctions: () -> (vec SnsNervousSystemFunction) query;
+   revokeAdminOnBackend: (backend: principal, admin: principal) -> ();
+   setSnsDepositConfigOnBackend: (backend: principal, arg:
+    record {
+      depositAmountE8s: nat;
+      includeReport: bool;
+      minBalanceE8s: nat;
+    }) -> ();
+   setSnsDrainAlertConfigOnBackend: (backend: principal, arg:
+    record {
+      alertCooldownDays: nat;
+      dayOverDayFactorPct: nat;
+      monthlyAvgFactorPct: nat;
+      weeklyAvgFactorPct: nat;
+    }) -> ();
+   setSnsReportConfigOnBackend: (backend: principal, arg:
+    record {cadenceDays: nat;}) -> ();
+   submittedMotions: () -> (vec SubmittedMotion) query;
+   submittedTreasuryTransfers: () -> (vec SubmittedTransfer) query;
+ };
+type SnsGenericFunction = 
+ record {
+   target_canister_id: opt principal;
+   target_method_name: opt text;
+   topic: opt SnsTopic;
+   validator_canister_id: opt principal;
+   validator_method_name: opt text;
+ };
+type SnsFunctionType = variant {
+                         GenericNervousSystemFunction: SnsGenericFunction;};
+type SnsAction = 
+ variant {
+   AddGenericNervousSystemFunction: SnsNervousSystemFunction;
+   Motion: SnsMotion;
+   TransferSnsTreasuryFunds: SnsTransferTreasuryFunds;
+ };
+service : () -> SnsGovernanceStub

@@ -1,0 +1,166 @@
+# yaml-language-server: $schema=https://github.com/dfinity/icp-cli/raw/refs/tags/v0.1.0/docs/schemas/icp-yaml-schema.json
+
+networks:
+  - name: local
+    mode: managed
+
+# init_args use icp-cli's inline candid shorthand so the encoded principals
+# are visible from this file. Defaults target the local network; the
+# `production` environment below overrides the backend's init args with the
+# mainnet blackhole + real ICPSwap pool + real SNS-Wasm registry. Local IDs
+# come from `.icp/cache/mappings/local.ids.json` and are stable for a given
+# canister allocation order — if a fresh `icp deploy` ever allocates different
+# ids, update the principals below to match.
+canisters:
+  - name: unicycle_backend
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: src/unicycle_backend/main.mo
+        candid: src/unicycle_backend/unicycle_backend.did
+    # (blackholeCanisterId, icpSwapPoolId, snsWasmCanisterId, cmcCanisterId) —
+    # local balance_checker + icpswap_pool + sns_wasm + cmc
+    init_args: '(principal "a2cb4-hh777-77775-aaaba-cai", principal "abh5z-57777-77775-aaadq-cai", principal "apfqr-gp777-77775-aaacq-cai", principal "bmjzx-sx777-77775-aaaea-cai")'
+
+  - name: unicycle_frontend
+    recipe:
+      type: "@dfinity/asset-canister@v2.2.1"
+      configuration:
+        dir: src/unicycle_frontend/dist
+        build:
+          - pnpm install --frozen-lockfile
+          - pnpm build
+
+  # Vendored from the unicycle_blackhole repo for local dev. Source of truth
+  # lives there; refresh with `unicycle_blackhole/scripts/vendor-to-unicycle.sh`.
+  # Mainnet deploys of the blackhole go from its own repo, so this canister is
+  # excluded from the `production` environment below.
+  - name: balance_checker
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/blackhole/balance_checker.wasm
+          sha256: e1ec113dfdb077be3733d1805bc251525485461ef5156f531910634d8da5fc5a
+    # authorisedCaller = local unicycle_backend
+    init_args: '(principal "agg3n-qh777-77775-aaada-cai")'
+
+  # Local stub for the ICPSwap V3 SwapPool. Saga test fixture only — mainnet
+  # deploys init-arg the backend at the real ICP/CYCLES pool
+  # (`pejtq-ciaaa-aaaar-qb5wq-cai`) and never load this canister.
+  - name: icpswap_pool
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: vendor/icpswap/icpswap_pool_stub.mo
+        candid: vendor/icpswap/icpswap_pool_stub.did
+    init_args: '()'
+
+  # Local stub for the NNS Cycles Minting Canister (US30). Lets the direct-mint
+  # saga run end-to-end against a local replica; mainnet deploys init-arg the
+  # backend at the real CMC (`rkp4c-7iaaa-aaaaa-aaaca-cai`) and never load this
+  # canister. Seed its raw cycle balance (it mints from it) with
+  # `devscripts/seed-cmc-stub.sh`. Excluded from the `production` block below.
+  - name: cmc
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: vendor/cmc/cmc_stub.mo
+        candid: vendor/cmc/cmc_stub.did
+    init_args: '()'
+
+  # Local stub for the NNS SNS-Wasm registry (US21). Resolves the backend's
+  # governance→root lookup against a seedable in-memory list; mainnet deploys
+  # init-arg the backend at the real SNS-Wasm canister
+  # (`qaa6y-5yaaa-aaaaa-aaafa-cai`) and never load this canister. Seed a
+  # governance→root mapping with
+  # `devscripts/seed-sns-wasm-stub.sh <governance-pid> <root-pid>`.
+  - name: sns_wasm
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: vendor/sns_wasm/sns_wasm_stub.mo
+        candid: vendor/sns_wasm/sns_wasm_stub.did
+    init_args: '()'
+
+  # Local stub for an SNS governance canister (US22). Models just enough of
+  # `manage_neuron` to gate hotkey-authorized proposal submission; mainnet has a
+  # real governance canister per SNS (discovered via the SNS-Wasm registry) and
+  # the backend never loads this stub there. Seed a neuron's hotkey + register it
+  # with the backend via `devscripts/seed-sns-governance-stub.sh <backend-pid>`
+  # (the sns_wasm stub must first map this canister's id → a root). Excluded from
+  # the `production` environment below.
+  - name: sns_governance
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: vendor/sns_governance/sns_governance_stub.mo
+        candid: vendor/sns_governance/sns_governance_stub.did
+    init_args: '()'
+
+  # Local-only real ICRC-1 ledger (DFINITY ic-icrc1-ledger, release
+  # ledger-suite-icrc-2026-03-09) used to exercise US19's custom-token recovery
+  # flow — a token that is NOT a built-in (ICP/TCYCLES) so `Add token` accepts
+  # it. The minting account is the local `dev` identity, so a transfer *from*
+  # dev mints new TEST tokens; seed a wallet with
+  # `devscripts/seed-test-token.sh <principal> [amount]`. Excluded from the
+  # `production` environment below — this is a dev fixture, never deployed to ic.
+  - name: test_icrc1_ledger
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/icrc1/icrc1_ledger.wasm
+          sha256: a273d741019b4324b22e2e64cfb0239de148ae9693e8801102a04118dfd383c0
+    # LedgerArg = variant { Init : InitArgs }. minting_account = local `dev`.
+    # Integer fields are type-annotated so the candid-text encoder picks the
+    # ledger's exact types (archive_options uses nat64, decimals nat8) instead of
+    # inferring nat — an unannotated value trips "Subtyping error: nat".
+    init_args: '(variant { Init = record { token_symbol = "TEST"; token_name = "Test Token"; minting_account = record { owner = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" }; transfer_fee = 10_000 : nat; decimals = opt (8 : nat8); metadata = vec {}; initial_balances = vec {}; feature_flags = opt record { icrc2 = true }; archive_options = record { num_blocks_to_archive = 1_000 : nat64; trigger_threshold = 2_000 : nat64; controller_id = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" } } })'
+
+environments:
+  # Default target for a bare `icp deploy` (no -e). Lists only the project
+  # canisters so routine deploys never touch the ICRC ledger fixture — the
+  # ledger's Init-only arg traps on upgrade, and it rarely changes. Deploy /
+  # reinstall it on demand with the `ledger` environment below.
+  - name: local
+    network: local
+    canisters: [unicycle_backend, unicycle_frontend, balance_checker, icpswap_pool, cmc, sns_wasm, sns_governance]
+
+  # Local-only fixture deploy: `icp deploy -e ledger` (first time) or
+  # `icp deploy -e ledger --mode reinstall` (subsequent — clears token state,
+  # reseed via devscripts/seed-test-token.sh). Kept out of the default `local`
+  # env so it isn't redeployed on every `icp deploy`.
+  - name: ledger
+    network: local
+    canisters: [test_icrc1_ledger]
+
+  - name: production
+    network: ic
+    canisters: [unicycle_backend, unicycle_frontend]
+    init_args:
+      # Mainnet blackhole (deployed from the unicycle_blackhole repo) + the
+      # real ICPSwap V3 ICP/CYCLES pool + the NNS SNS-Wasm registry + the NNS
+      # Cycles Minting Canister.
+      unicycle_backend: '(principal "j4txm-raaaa-aaaae-qkcqq-cai", principal "pejtq-ciaaa-aaaar-qb5wq-cai", principal "qaa6y-5yaaa-aaaaa-aaafa-cai", principal "rkp4c-7iaaa-aaaaa-aaaca-cai")'
+    # Production safety config (DOS-5). Applied to the live canister with
+    # `icp canister settings sync -e production unicycle_backend` (also set on
+    # first `icp deploy -e production`). Only the backend gets these — the
+    # asset canister is comparatively disposable.
+    settings:
+      unicycle_backend:
+        # Keep a 90-day cycle reserve so this high-value, state-holding canister
+        # freezes (rejecting updates, recoverable by a top-up) long before it
+        # could ever be deleted. NOTE: it must stay funded above ~90 days of
+        # idle burn or it freezes immediately — monitor serviceCyclesBalance
+        # (adminGetMetrics) and top up well ahead of the line.
+        freezing_threshold: "90d"
+        # Fail allocations gracefully below the ~4 GiB heap hard-trap, leaving
+        # headroom to upgrade/migrate out of a near-full state instead of an
+        # unrecoverable OOM.
+        wasm_memory_limit: "3gib"
+        # Backup controller (recommended): add a second recovery principal so a
+        # single lost key can't strand the canister. Uncomment and set real
+        # principals — `settings sync` REPLACES the controller list, so the
+        # deploying identity MUST be included here too.
+        # controllers:
+        #   - "<deployer-principal>"
+        #   - "<backup-recovery-principal>"

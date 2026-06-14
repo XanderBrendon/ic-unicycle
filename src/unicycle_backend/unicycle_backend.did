@@ -1,0 +1,690 @@
+type WithdrawError =
+ variant {
+   anonymous;
+   transfer: TransferError;
+   zeroAmount;
+ };
+type UpsertCanisterError =
+ variant {
+   anonymous;
+   blackholeNotController:
+    record {
+      blackholeCanisterId: principal;
+      reason: text;
+    };
+   canisterLimitReached: record {maxCanistersPerOwner: nat;};
+   ownerLimitReached: record {maxOwners: nat;};
+   rateLimited;
+   zeroCycleTopUpAmount;
+   zeroMinCycleBalance;
+ };
+type UpdateAdminSettingsError =
+ variant {
+   anonymous;
+   feeBpsTooHigh: record {maxBps: nat;};
+   intervalTooSmall: record {minSeconds: nat;};
+   lpThresholdTooLow: record {minTcycles: nat;};
+   notAdmin;
+   swapSlippageTooHigh: record {maxBps: nat;};
+   zeroValue: record {field: text;};
+ };
+type Unicycle =
+ service {
+   addAdmin: (p: principal) -> (Result_3);
+   adminFundLpPosition: (amount: nat) -> (Result_24);
+   adminGetLogs: (filter: LogFilter) -> (Result_23) query;
+   adminGetLoyaltyInfo: () -> (Result_22) query;
+   adminGetLpInfo: () -> (Result_21);
+   adminGetMetrics: () -> (Result_20) query;
+   adminGetMetricsSnapshots: () -> (Result_19) query;
+   adminGetServiceFundingInfo: () -> (Result_18);
+   adminGetTimerInfo: () -> (Result_17) query;
+   adminHarvestLpRewards: () -> (Result_16);
+   adminListAllTracked: () -> (Result_15) query;
+   adminListRecentTopUps: (limit: nat) -> (Result_14) query;
+   adminSeedDrainFixture: (owner: principal, canisterId: principal, points:
+    vec DrainSeedPoint) -> (Result_3);
+   adminSnsRunDepositCheck: (governance: principal) -> (Result_13);
+   adminSnsRunDrainAlertCheck: (governance: principal) -> (Result_12);
+   adminSnsRunReportCheck: (governance: principal) -> (Result_11);
+   adminSnsSetup: (governance: principal, neuronId: blob, baseFunctionId:
+    nat64) -> (Result_10);
+   adminSubmitSnsTestMotion: (governance: principal, summary: text) ->
+    (Result_9);
+   amIAdmin: () -> (bool) query;
+   asSnsGetCanisterHistory: (root: principal, canisterId: principal) ->
+    (opt CanisterHistory) query;
+   asSnsGetFleetSummary: (root: principal) -> (vec CanisterHistory) query;
+   asSnsGetTrackedCanisters: (root: principal) -> (vec TrackedCanister) query;
+   asSnsRecordCyclesNow: (root: principal, canisterId: principal) ->
+    (Result_6);
+   asSnsRemoveCanister: (root: principal, canisterId: principal) ->
+    (Result_5);
+   asSnsSetCanisterSuspended: (root: principal, canisterId: principal,
+    suspend: bool) -> (Result_4);
+   asSnsUpsertCanister: (root: principal, canisterId: principal, config:
+    CanisterConfig) -> (Result_1);
+   deposit: (token: Token, amount: nat) -> (Result_8);
+   getAdminSettings: () -> (Result_7) query;
+   getAdmins: () -> (vec principal) query;
+   getBlackholeCanister: () -> (principal) query;
+   getCachedControllers: () -> (vec principal) query;
+   getCanisterHistory: (canisterId: principal) -> (opt CanisterHistory) query;
+   getCmcCanister: () -> (principal) query;
+   getDepositAccount: (owner: principal) -> (Account) query;
+   getFeePoolAccount: () -> (Account) query;
+   getFleetSummary: () -> (vec CanisterHistory) query;
+   getIcpSwapPool: () -> (principal) query;
+   getMyBalanceHistory: () -> (vec BalanceEvent) query;
+   getMyLoyaltyStatus: () -> (MyLoyaltyStatus) query;
+   getMySnsAdminRoots: () -> (vec principal) query;
+   getPrimaryAdmin: () -> (opt principal) query;
+   getSnsAdmins: (governance: principal) -> (opt vec principal);
+   getSnsDepositAccount: (governance: principal) -> (opt Account);
+   getSnsDepositConfig: (governance: principal) ->
+    (opt SnsSetDepositConfigArg);
+   getSnsDrainAlertConfig: (governance: principal) ->
+    (opt SnsSetDrainAlertConfigArg);
+   getSnsProposalNeuron: (governance: principal) -> (opt blob);
+   getSnsReportConfig: (governance: principal) -> (opt SnsSetReportConfigArg);
+   getSnsWasmCanister: () -> (principal) query;
+   getTimerSchedule: () -> (TimerSchedule) query;
+   getTrackedCanisters: () -> (vec TrackedCanister) query;
+   recordCyclesNow: (canisterId: principal) -> (Result_6);
+   removeAdmin: (p: principal) -> (Result_3);
+   removeCanister: (canisterId: principal) -> (Result_5);
+   setCanisterSuspended: (canisterId: principal, suspend: bool) -> (Result_4);
+   setIcpSwapPool: (p: principal) -> (Result_3);
+   setPrimaryAdmin: (p: principal) -> (Result_3);
+   snsDeposit: (arg: SnsDepositArg) -> ();
+   snsDepositValidate: (arg: SnsDepositArg) -> (SnsValidateResult);
+   snsGrantAdmin: (arg: SnsGrantAdminArg) -> ();
+   snsGrantAdminValidate: (arg: SnsGrantAdminArg) -> (SnsValidateResult);
+   snsRecordCyclesNow: (arg: SnsRecordCyclesArg) -> ();
+   snsRecordCyclesNowValidate: (arg: SnsRecordCyclesArg) ->
+    (SnsValidateResult);
+   snsRemoveCanister: (arg: SnsRemoveCanisterArg) -> ();
+   snsRemoveCanisterValidate: (arg: SnsRemoveCanisterArg) ->
+    (SnsValidateResult);
+   snsRevokeAdmin: (arg: SnsRevokeAdminArg) -> ();
+   snsRevokeAdminValidate: (arg: SnsRevokeAdminArg) -> (SnsValidateResult);
+   snsSetCanisterSuspended: (arg: SnsSetSuspendedArg) -> ();
+   snsSetCanisterSuspendedValidate: (arg: SnsSetSuspendedArg) ->
+    (SnsValidateResult);
+   snsSetDepositConfig: (arg: SnsSetDepositConfigArg) -> ();
+   snsSetDepositConfigValidate: (arg: SnsSetDepositConfigArg) ->
+    (SnsValidateResult);
+   snsSetDrainAlertConfig: (arg: SnsSetDrainAlertConfigArg) -> ();
+   snsSetDrainAlertConfigValidate: (arg: SnsSetDrainAlertConfigArg) ->
+    (SnsValidateResult);
+   snsSetProposalNeuron: (arg: SnsSetProposalNeuronArg) -> ();
+   snsSetProposalNeuronValidate: (arg: SnsSetProposalNeuronArg) ->
+    (SnsValidateResult);
+   snsSetReportConfig: (arg: SnsSetReportConfigArg) -> ();
+   snsSetReportConfigValidate: (arg: SnsSetReportConfigArg) ->
+    (SnsValidateResult);
+   snsSetup: (arg: SnsSetupArg) -> ();
+   snsSetupValidate: (arg: SnsSetupArg) -> (SnsValidateResult);
+   snsUpsertCanister: (arg: SnsUpsertCanisterArg) -> ();
+   snsUpsertCanisterValidate: (arg: SnsUpsertCanisterArg) ->
+    (SnsValidateResult);
+   snsWithdraw: (arg: SnsWithdrawArg) -> ();
+   snsWithdrawValidate: (arg: SnsWithdrawArg) -> (SnsValidateResult);
+   updateAdminSettings: (next: AdminSettings) -> (Result_2);
+   upsertCanister: (canisterId: principal, config: CanisterConfig) ->
+    (Result_1);
+   whoami: () -> (principal) query;
+   withdraw: (token: Token, amount: nat) -> (Result);
+ };
+type TransferFromError =
+ variant {
+   BadBurn: record {min_burn_amount: nat;};
+   BadFee: record {expected_fee: nat;};
+   CreatedInFuture: record {ledger_time: nat64;};
+   Duplicate: record {duplicate_of: nat;};
+   GenericError: record {
+                   error_code: nat;
+                   message: text;
+                 };
+   InsufficientAllowance: record {allowance: nat;};
+   InsufficientFunds: record {balance: nat;};
+   TemporarilyUnavailable;
+   TooOld;
+ };
+type TransferError =
+ variant {
+   BadBurn: record {min_burn_amount: nat;};
+   BadFee: record {expected_fee: nat;};
+   CreatedInFuture: record {ledger_time: Timestamp;};
+   Duplicate: record {duplicate_of: nat;};
+   GenericError: record {
+                   error_code: nat;
+                   message: text;
+                 };
+   InsufficientFunds: record {balance: nat;};
+   TemporarilyUnavailable;
+   TooOld;
+ };
+type TrackedCanister =
+ record {
+   canisterId: principal;
+   config: CanisterConfig;
+ };
+type TopUp =
+ record {
+   amount: nat;
+   attemptedAt: nat;
+   feeError: opt text;
+   rebateApplied: nat;
+   result: variant {
+             err: text;
+             ok: nat;
+           };
+   serviceFee: nat;
+   swap: opt SwapAttempt;
+ };
+type Token =
+ variant {
+   ICP;
+   TCYCLES;
+ };
+type Timestamp = nat64;
+type TimerSchedule =
+ record {
+   cycleCheckIntervalSeconds: nat;
+   lastCycleCheckAt: opt nat;
+ };
+type SwapAttempt =
+ record {
+   amountIn: nat;
+   amountOut: nat;
+   outcome:
+    variant {
+      err: text;
+      ok;
+      stuckInPool: record {
+                     amount: nat;
+                     token: text;
+                   };
+    };
+   source: variant {
+             mint;
+             swap;
+           };
+ };
+type SuspendCanisterError =
+ variant {
+   anonymous;
+   notTracked;
+ };
+type SnsWithdrawArg =
+ record {
+   amount: nat;
+   token: Token;
+ };
+type SnsValidateResult =
+ variant {
+   Err: text;
+   Ok: text;
+ };
+type SnsUpsertCanisterArg =
+ record {
+   canisterId: principal;
+   config: CanisterConfig;
+ };
+type SnsSetupArg =
+ record {
+   baseFunctionId: nat64;
+   neuronId: blob;
+ };
+type SnsSetSuspendedArg =
+ record {
+   canisterId: principal;
+   suspend: bool;
+ };
+type SnsSetReportConfigArg = record {cadenceDays: nat;};
+type SnsSetProposalNeuronArg = record {neuronId: blob;};
+type SnsSetDrainAlertConfigArg =
+ record {
+   alertCooldownDays: nat;
+   dayOverDayFactorPct: nat;
+   monthlyAvgFactorPct: nat;
+   weeklyAvgFactorPct: nat;
+ };
+type SnsSetDepositConfigArg =
+ record {
+   depositAmountE8s: nat;
+   includeReport: bool;
+   minBalanceE8s: nat;
+ };
+type SnsRevokeAdminArg = record {admin: principal;};
+type SnsReportCheckOutcome =
+ record {
+   action: SnsReportAction;
+   cadenceDays: nat;
+   governance: principal;
+   root: principal;
+   trackedCount: nat;
+ };
+type SnsReportAction =
+ variant {
+   failed: text;
+   skippedDisabled;
+   skippedNoNeuron;
+   skippedNotDue;
+   submitted: nat;
+ };
+type SnsRemoveCanisterArg = record {canisterId: principal;};
+type SnsRecordCyclesArg = record {canisterId: principal;};
+type SnsGrantAdminArg = record {admin: principal;};
+type SnsFunctionRegistration =
+ record {
+   functionId: nat64;
+   method: text;
+   result: Result_9;
+ };
+type SnsDrainTrigger =
+ record {
+   canisterId: principal;
+   reasons: vec text;
+ };
+type SnsDrainAlertCheckOutcome =
+ record {
+   action: SnsDrainAlertAction;
+   governance: principal;
+   root: principal;
+   trackedCount: nat;
+   triggers: vec SnsDrainTrigger;
+ };
+type SnsDrainAlertAction =
+ variant {
+   failed: text;
+   skippedCooldown;
+   skippedDisabled;
+   skippedNoAnomaly;
+   skippedNoNeuron;
+   submitted: nat;
+ };
+type SnsDepositCheckOutcome =
+ record {
+   action: SnsDepositAction;
+   balanceE8s: nat;
+   depositAmountE8s: nat;
+   governance: principal;
+   minBalanceE8s: nat;
+   root: principal;
+ };
+type SnsDepositArg =
+ record {
+   amount: nat;
+   token: Token;
+ };
+type SnsDepositAction =
+ variant {
+   failed: text;
+   skippedAboveThreshold;
+   skippedCooldown;
+   skippedDisabled;
+   skippedNoNeuron;
+   submitted: nat;
+ };
+type Result_9 =
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Result_8 =
+ variant {
+   err: DepositError;
+   ok: nat;
+ };
+type Result_7 =
+ variant {
+   err: AdminError;
+   ok: AdminSettings;
+ };
+type Result_6 =
+ variant {
+   err: RecordCyclesError;
+   ok;
+ };
+type Result_5 =
+ variant {
+   err: RemoveCanisterError;
+   ok;
+ };
+type Result_4 =
+ variant {
+   err: SuspendCanisterError;
+   ok;
+ };
+type Result_3 =
+ variant {
+   err: AdminError;
+   ok;
+ };
+type Result_24 =
+ variant {
+   err: AdminError;
+   ok: LpEvent;
+ };
+type Result_23 =
+ variant {
+   err: AdminError;
+   ok: vec LogEntry;
+ };
+type Result_22 =
+ variant {
+   err: AdminError;
+   ok: AdminLoyaltyInfo;
+ };
+type Result_21 =
+ variant {
+   err: AdminError;
+   ok: AdminLpInfo;
+ };
+type Result_20 =
+ variant {
+   err: AdminError;
+   ok: AdminMetrics;
+ };
+type Result_2 =
+ variant {
+   err: UpdateAdminSettingsError;
+   ok;
+ };
+type Result_19 =
+ variant {
+   err: AdminError;
+   ok: vec MetricsSnapshot;
+ };
+type Result_18 =
+ variant {
+   err: AdminError;
+   ok: AdminServiceFundingInfo;
+ };
+type Result_17 =
+ variant {
+   err: AdminError;
+   ok: AdminTimerInfo;
+ };
+type Result_16 =
+ variant {
+   err: AdminError;
+   ok: HarvestEvent;
+ };
+type Result_15 =
+ variant {
+   err: AdminError;
+   ok: vec AdminTrackedRow;
+ };
+type Result_14 =
+ variant {
+   err: AdminError;
+   ok: vec AdminTopUpRow;
+ };
+type Result_13 =
+ variant {
+   err: text;
+   ok: SnsDepositCheckOutcome;
+ };
+type Result_12 =
+ variant {
+   err: text;
+   ok: SnsDrainAlertCheckOutcome;
+ };
+type Result_11 =
+ variant {
+   err: text;
+   ok: SnsReportCheckOutcome;
+ };
+type Result_10 =
+ variant {
+   err: text;
+   ok: vec SnsFunctionRegistration;
+ };
+type Result_1 =
+ variant {
+   err: UpsertCanisterError;
+   ok;
+ };
+type Result =
+ variant {
+   err: WithdrawError;
+   ok: nat;
+ };
+type RemoveCanisterError =
+ variant {
+   anonymous;
+   notTracked;
+   topUpInFlight;
+ };
+type RecordCyclesError =
+ variant {
+   anonymous;
+   notTracked;
+   rateLimited;
+ };
+type MyLoyaltyStatus =
+ record {
+   claimableRebateTcycles: nat;
+   feeContributedTcycles: nat;
+ };
+type MetricsSnapshot =
+ record {
+   accRewardPerShare: nat;
+   at: nat;
+   cumulativeFeesTcycles: nat;
+   cumulativeRebatesGrantedTcycles: nat;
+   cumulativeServiceFundingTcycles: nat;
+   cumulativeSurplusRewardsTcycles: nat;
+   cumulativeTopUpTcycles: nat;
+   cumulativeTopUpsFailed: nat;
+   cumulativeTopUpsSucceeded: nat;
+   feePoolBalanceTcycles: nat;
+   lpPositionId: opt nat;
+   ownersCount: nat;
+   serviceCyclesBalance: nat;
+   trackedCanistersCount: nat;
+ };
+type LpEvent =
+ record {
+   at: nat;
+   icpOut: nat;
+   outcome: variant {
+              err: text;
+              ok;
+            };
+   positionId: opt nat;
+   tcyclesIn: nat;
+ };
+type LogLevel =
+ variant {
+   error;
+   info;
+   warn;
+ };
+type LogFilter =
+ record {
+   beforeSeq: opt nat;
+   category: opt LogCategory;
+   level: opt LogLevel;
+   limit: nat;
+ };
+type LogEntry =
+ record {
+   at: nat;
+   caller: opt principal;
+   category: LogCategory;
+   level: LogLevel;
+   message: text;
+   seq: nat;
+ };
+type LogCategory =
+ variant {
+   admin;
+   fee;
+   harvest;
+   lp;
+   sns;
+   swap;
+   timer;
+   topUp;
+ };
+type HarvestEvent =
+ record {
+   at: int;
+   claimedIcp: nat;
+   claimedTcycles: nat;
+   outcome: variant {
+              err: text;
+              ok;
+            };
+   toAdmin: nat;
+   toSurplus: nat;
+ };
+type DrainSeedPoint =
+ record {
+   balanceCycles: nat;
+   daysAgo: nat;
+ };
+type DepositError =
+ variant {
+   anonymous;
+   transferFrom: TransferFromError;
+   zeroAmount;
+ };
+type CycleReading =
+ record {
+   recordedAt: nat;
+   result: variant {
+             err: text;
+             ok: nat;
+           };
+ };
+type CanisterHistory =
+ record {
+   canisterId: principal;
+   config: CanisterConfig;
+   readings: vec CycleReading;
+   topUps: vec TopUp;
+ };
+type CanisterConfig =
+ record {
+   cycleTopUpAmount: nat;
+   minCycleBalance: nat;
+   nickname: opt text;
+   suspendedUntil: opt nat;
+ };
+type BalanceEventKind =
+ variant {
+   deposit;
+   feeCharge: record {
+                canisterId: principal;
+                rebateApplied: nat;
+              };
+   mintDelivery: record {canisterId: principal;};
+   mintFunding: record {canisterId: principal;};
+   rebateSettled;
+   serviceFunding;
+   swapDelivery: record {canisterId: principal;};
+   swapFunding: record {canisterId: principal;};
+   topUp: record {canisterId: principal;};
+   withdraw;
+ };
+type BalanceEvent =
+ record {
+   amount: nat;
+   at: nat;
+   direction: variant {
+                credit;
+                debit;
+              };
+   kind: BalanceEventKind;
+   token: Token;
+ };
+type AdminTrackedRow =
+ record {
+   canisterId: principal;
+   config: CanisterConfig;
+   latestReading: opt CycleReading;
+   owner: principal;
+ };
+type AdminTopUpRow =
+ record {
+   canisterId: principal;
+   owner: principal;
+   topUp: TopUp;
+ };
+type AdminTimerInfo = record {cycleCheckIntervalSeconds: nat;};
+type AdminSettings =
+ record {
+   baseServiceFeeBps: nat;
+   batchSize: nat;
+   cycleCheckIntervalSeconds: nat;
+   lpDrainThresholdTcycles: nat;
+   maxCanistersPerOwner: nat;
+   maxOwners: nat;
+   maxReadingsPerCanister: nat;
+   maxTopUpsPerCanister: nat;
+   serviceFundingThresholdTcycles: nat;
+   swapSlippageBps: nat;
+ };
+type AdminServiceFundingInfo =
+ record {
+   cumulativeFeesTcycles: nat;
+   cumulativeServiceFundingTcycles: nat;
+   feeRoutingToService: bool;
+   primaryAdmin: opt principal;
+   primaryAdminSubaccountTcycles: nat;
+   serviceFundingThresholdTcycles: nat;
+ };
+type AdminMetrics =
+ record {
+   balanceEventsTotal: nat;
+   cumulativeTopUpsFailed: nat;
+   cumulativeTopUpsSucceeded: nat;
+   heapSizeBytes: nat;
+   inFlightCount: nat;
+   lastCycleCheckAt: opt nat;
+   logEntriesCount: nat;
+   memorySizeBytes: nat;
+   ownersCount: nat;
+   readingsTotal: nat;
+   serviceCyclesBalance: nat;
+   topUpsTotal: nat;
+   trackedCanistersCount: nat;
+ };
+type AdminLpInfo =
+ record {
+   cumulativeAdminFundedTcycles: nat;
+   cumulativeFeesTcycles: nat;
+   feePoolBalanceTcycles: nat;
+   lpHistory: vec LpEvent;
+   lpPositionId: opt nat;
+ };
+type AdminLoyaltyInfo =
+ record {
+   accRewardPerShare: nat;
+   contributorCount: nat;
+   cumulativeRebatesGrantedTcycles: nat;
+   cumulativeSurplusRewardsTcycles: nat;
+   harvestHistory: vec HarvestEvent;
+   outstandingRebateCreditTcycles: nat;
+   topContributors: vec record {
+                          principal;
+                          nat;
+                        };
+   totalSharesTcycles: nat;
+ };
+type AdminError =
+ variant {
+   anonymous;
+   notAdmin;
+ };
+type Account =
+ record {
+   owner: principal;
+   subaccount: opt blob;
+ };
+service : (blackholeCanisterId: principal, icpSwapPoolId: principal, snsWasmCanisterId: principal, cmcCanisterId: principal) -> Unicycle

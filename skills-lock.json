@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "skills": {
+    "asset-canister": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/asset-canister/SKILL.md",
+      "computedHash": "d09c9855bdf3b781ec50b04a1f12d3e286b5d14b32d026f9187a86510bd8c4e5"
+    },
+    "canhelp": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/canhelp/SKILL.md",
+      "computedHash": "123c7744a91202265c436684038bf1d7098f4c91a41d27b60bf69466d72fdd77"
+    },
+    "canister-security": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/canister-security/SKILL.md",
+      "computedHash": "3f7923e02eae8802fb81d40b40ae10cab5c562fc7f785382c0ea1ae47573c959"
+    },
+    "certified-variables": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/certified-variables/SKILL.md",
+      "computedHash": "a1cc0b3a3ff8fe8036728c05d8fcbc358aa137e04f544cb73bb9db20eccc008f"
+    },
+    "ckbtc": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/ckbtc/SKILL.md",
+      "computedHash": "aee51540d7740f8fa861caed4e6618d65bc4a0d50e73e740922e330dda4f5fef"
+    },
+    "custom-domains": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/custom-domains/SKILL.md",
+      "computedHash": "12ada9d3c6dcd6512204e706e30b592f92b40be937207846fe04dd3e14892a3d"
+    },
+    "cycles-management": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/cycles-management/SKILL.md",
+      "computedHash": "1faed673deac6501b75db1caeb88c3c48e1c5d2b8fcd6f9960f1aed86951332e"
+    },
+    "evm-rpc": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/evm-rpc/SKILL.md",
+      "computedHash": "5b895a353a68dc3cf88b5c4e3a201b1e9ca3e196206213541a4b417966ec7bf7"
+    },
+    "https-outcalls": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/https-outcalls/SKILL.md",
+      "computedHash": "60a3facd267354a5cca12f5867e0c41d22769c3484a7e79bbda03e2299d5e020"
+    },
+    "ic-dashboard": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/ic-dashboard/SKILL.md",
+      "computedHash": "a8359a1135f645fc7d980010c213eeda2f596144be93ca03366ccb31fb69c90c"
+    },
+    "icp-cli": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/icp-cli/SKILL.md",
+      "computedHash": "160abb1635ad5a3e6960264af90aa99264eda5f3b55456e842c18e3a33875ee8"
+    },
+    "icrc-ledger": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/icrc-ledger/SKILL.md",
+      "computedHash": "0bae5121cb311292d5ade27b337ea783dd8478da10de026076c273caa2ee4dfe"
+    },
+    "internet-identity": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/internet-identity/SKILL.md",
+      "computedHash": "b22aa535bf1267b2d1cb04f0efd9ab5474fa2dc9c6001e1f25fceac909534338"
+    },
+    "migrating-motoko": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/migrating-motoko/SKILL.md",
+      "computedHash": "64654d439186c2ef413eade7cedcebda86a278207dc1c4e9ff9324ca338bb5e7"
+    },
+    "migrating-motoko-enhanced": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/migrating-motoko-enhanced/SKILL.md",
+      "computedHash": "9237a5445ba9277f7c7ae754dfe1444cda9fbfe6172b2d7a5506807ed1e25027"
+    },
+    "mops-cli": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/mops-cli/SKILL.md",
+      "computedHash": "78d9c6c0c49bf5d3cf0168c458a2567db3069d9bca7944f8a1fce3c4274841a9"
+    },
+    "motoko": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/motoko/SKILL.md",
+      "computedHash": "c4411552ce063bd15547f96583ad33c71ad4e649874fdc60bdba95b02e65c837"
+    },
+    "multi-canister": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/multi-canister/SKILL.md",
+      "computedHash": "8541800e794cb5ae996478c35f43f56e3c5144077dbe5df08426e29ca0135173"
+    },
+    "sns-launch": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/sns-launch/SKILL.md",
+      "computedHash": "8e76757ed94c2d430595aa40fcb13a44f718ce39616100ff7b04d883b25a2c5c"
+    },
+    "stable-memory": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/stable-memory/SKILL.md",
+      "computedHash": "25d07ef17ef235e5631174cea525be003d0d948b26bd656a3cc9dc17c03e85b9"
+    },
+    "vetkd": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/vetkd/SKILL.md",
+      "computedHash": "c4e837e1b0c18a6b834e1637e1deb12239e3d202cc76ee9855dbce29c626248d"
+    },
+    "wallet-integration": {
+      "source": "dfinity/icskills",
+      "sourceType": "github",
+      "skillPath": "skills/wallet-integration/SKILL.md",
+      "computedHash": "e78732b3fe80c2585f651860f8cd2dc10078ae82e47bb28576e2adcaf10718c0"
+    }
+  }
+}

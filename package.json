@@ -1,0 +1,34 @@
+{
+  "name": "unicycle",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.1",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "bindgen": "icp-bindgen --did-file src/unicycle_backend/unicycle_backend.did --out-dir src/unicycle_frontend/src/bindings/unicycle_backend --force",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "pretypecheck": "pnpm bindgen",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dfinity/utils": "^4.2.1",
+    "@icp-sdk/auth": "^7.0.0",
+    "@icp-sdk/canisters": "^3.6.0",
+    "@icp-sdk/core": "^5.4.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@icp-sdk/bindgen": "^0.4.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.12"
+  }
+}

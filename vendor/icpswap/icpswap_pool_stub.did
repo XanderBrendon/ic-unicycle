@@ -1,0 +1,109 @@
+type WithdrawToSubaccountArgs = 
+ record {
+   amount: nat;
+   fee: nat;
+   subaccount: blob;
+   token: text;
+ };
+type SwapArgs = 
+ record {
+   amountIn: text;
+   amountOutMinimum: text;
+   zeroForOne: bool;
+ };
+type PoolToken = 
+ record {
+   address: text;
+   standard: text;
+ };
+type PoolMetadata = 
+ record {
+   fee: nat;
+   sqrtPriceX96: nat;
+   token0: PoolToken;
+   token1: PoolToken;
+ };
+type MintArgs = 
+ record {
+   amount0Desired: text;
+   amount1Desired: text;
+   fee: nat;
+   tickLower: int;
+   tickUpper: int;
+   token0: text;
+   token1: text;
+ };
+type IncreaseLiquidityArgs =
+ record {
+   amount0Desired: text;
+   amount1Desired: text;
+   positionId: nat;
+ };
+type IcpSwapPoolStub = 
+ service {
+   balanceOf: (token: text) -> (nat) query;
+   bootstrapClaimable: (positionId: nat, amount0: nat, amount1: nat) -> ();
+   bootstrapTcycles: (amount: nat) -> (variant {
+                                         err: text;
+                                         ok: nat;
+                                       });
+   claim: (args: ClaimArgs) ->
+    (variant {
+       err: Error;
+       ok: record {
+             amount0: nat;
+             amount1: nat;
+           };
+     });
+   depositFrom: (args: DepositArgs) -> (variant {
+                                          err: Error;
+                                          ok: nat;
+                                        });
+   increaseLiquidity: (args: IncreaseLiquidityArgs) ->
+    (variant {
+       err: Error;
+       ok: nat;
+     });
+   metadata: () -> (variant {
+                      err: Error;
+                      ok: PoolMetadata;
+                    }) query;
+   mint: (args: MintArgs) -> (variant {
+                                err: Error;
+                                ok: nat;
+                              });
+   positionOf: (id: nat) ->
+    (opt record {
+           owner: principal;
+           token0: nat;
+           token1: nat;
+         }) query;
+   quote: (args: SwapArgs) -> (variant {
+                                 err: Error;
+                                 ok: nat;
+                               }) query;
+   swap: (args: SwapArgs) -> (variant {
+                                err: Error;
+                                ok: nat;
+                              });
+   withdrawToSubaccount: (args: WithdrawToSubaccountArgs) ->
+    (variant {
+       err: Error;
+       ok: nat;
+     });
+ };
+type Error = 
+ variant {
+   CommonError;
+   InsufficientFunds;
+   InternalError: text;
+   UnsupportedToken: text;
+ };
+type DepositArgs = 
+ record {
+   amount: nat;
+   fee: nat;
+   token: text;
+ };
+type ClaimArgs = record {positionId: nat;};
+service : () -> IcpSwapPoolStub

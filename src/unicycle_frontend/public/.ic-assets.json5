@@ -1,0 +1,45 @@
+// Asset-canister hardening for the Unicycle frontend, a funds app (review FE-1).
+// Vite copies this file from `public/` into `dist/`, where the asset canister
+// reads it as config (it is not itself served). One rule covers every asset.
+[
+  {
+    "match": "**/*",
+
+    // Disable the uncertified raw.icp0.io / raw.ic0.app domain. There a boundary
+    // node or network attacker can tamper with responses undetected (no HTTP
+    // asset certification); force all traffic through the certified gateway.
+    "allow_raw_access": false,
+
+    // We supply the full security header set below, so turn off the asset
+    // canister's built-in policy. This is deterministic: "disabled" emits no
+    // headers of its own, so there is no second (looser) CSP header to merge or
+    // duplicate — the headers served are exactly the ones listed here.
+    "security_policy": "disabled",
+
+    "headers": {
+      // Tightened from the dfinity standard policy. The agent talks to
+      // window.location.origin, so 'self' covers all canister/replica calls; the
+      // only cross-origin dependency is Internet Identity at id.ai (opened as a
+      // popup, kept in connect-src for headroom). The production bundle has no
+      // inline scripts, so script-src is a strict 'self'. React styling sets the
+      // CSSOM (not governed by CSP); 'unsafe-inline' on style-src only covers any
+      // runtime style attributes and carries no script-execution risk. Origins
+      // were narrowed from the dfinity baseline's wildcards (style-src *,
+      // font-src *, broad connect-src) to just what this app loads.
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; connect-src 'self' https://id.ai; img-src 'self' data:; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
+
+      // Disable all powerful browser features (verbatim from the dfinity policy).
+      "Permissions-Policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=(), clipboard-read=(), clipboard-write=(), gamepad=(), speaker-selection=(), conversion-measurement=(), focus-without-user-activation=(), hid=(), idle-detection=(), interest-cohort=(), serial=(), sync-script=(), trust-token-redemption=(), window-placement=(), vertical-scroll=()",
+
+      // Anti-clickjacking (legacy header alongside frame-ancestors above).
+      "X-Frame-Options": "DENY",
+      // Don't leak the canister URL to other origins.
+      "Referrer-Policy": "same-origin",
+      // Always use HTTPS (mainnet); localhost is exempt as a secure context.
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      // No MIME sniffing.
+      "X-Content-Type-Options": "nosniff",
+      "X-XSS-Protection": "1; mode=block",
+    },
+  },
+]

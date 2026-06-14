@@ -1,0 +1,33 @@
+type CmcStub = 
+ service {
+   get_icp_xdr_conversion_rate: () ->
+    (record {
+       data: record {
+               timestamp_seconds: nat64;
+               xdr_permyriad_per_icp: nat64;
+             };}) query;
+   notify_top_up: (args:
+    record {
+      block_index: nat64;
+      canister_id: principal;
+    }) ->
+    (variant {
+       Err:
+        variant {
+          InvalidTransaction: text;
+          Other: record {
+                   error_code: nat64;
+                   error_message: text;
+                 };
+          Processing;
+          Refunded: record {
+                      block_index: opt nat64;
+                      reason: text;
+                    };
+          TransactionTooOld: nat64;
+        };
+       Ok: nat;
+     });
+   setRate: (r: nat64) -> ();
+ };
+service : () -> CmcStub
