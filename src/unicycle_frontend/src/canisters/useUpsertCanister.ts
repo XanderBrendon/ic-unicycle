@@ -62,7 +62,7 @@ function formatUpsertCanisterError(
           "Unicycle can't read this canister's cycle balance yet: the blackhole canister isn't one of its " +
           "controllers. Run this from the canister's controlling identity, then try again.",
         detail: `Blackhole said: ${reason}`,
-        command: `icp canister settings update ${target.toText()} --add-controller ${blackholeCanisterId.toText()}`,
+        command: `icp canister settings update ${target.toText()} --add-controller ${blackholeCanisterId.toText()} -n ic`,
       };
     }
     case 'ownerLimitReached':
