@@ -1842,17 +1842,22 @@ persistent actor class Unicycle(
   // Step 2: swap `half` TCYCLES → ICP. Funds are already credited to the pool
   // from step 1; the swap output is credited to the backend's pool ICP balance.
   func swapHalfTcyclesForIcp(half : Nat) : async { #ok : Nat; #err : Text } {
-    // Slippage floor (FIN-1): price the expected ICP out against the CMC's XDR
-    // peg — an oracle a pool front-runner can't move — and require at least
-    // (1 - swapSlippageBps) of it. If the rate is unreachable or zero we can't
-    // price the swap, so skip it (best-effort; the next drain retries) rather
-    // than swap unprotected.
-    let xpe = switch (await cmcCyclesPerE8s()) {
-      case (#ok r) { r };
-      case (#err e) { return #err("no rate for slippage floor: " # e) };
+    // Slippage floor (FIN-1): the CMC peg is a one-way ICP→cycles mint rate, so
+    // it overvalues TCYCLES on the sell leg — TCYCLES trades below peg on the
+    // pool, and a peg-priced floor rejects even tiny swaps. Quote the pool for
+    // this exact trade (like quoteGroupSwap) and require at least
+    // (1 - swapSlippageBps) of the quoted ICP out. If the pool is unreachable or
+    // quotes zero we can't price the swap, so skip it (best-effort; the next
+    // drain retries) rather than swap unprotected.
+    let quoted = try {
+      await icpSwapPool().quote({ zeroForOne = false; amountIn = half.toText(); amountOutMinimum = "0" });
+    } catch (e) { return #err("swap pool unreachable (quote): " # e.message()) };
+    let quotedOut = switch (quoted) {
+      case (#err e) { return #err(Errors.pool(e, "quote")) };
+      case (#ok 0)  { return #err("quote returned zero output") };
+      case (#ok n)  { n };
     };
-    if (xpe == 0) return #err("no rate for slippage floor: cmc rate zero");
-    let minOut = SwapMath.slippageFloor(SwapMath.expectedIcpOut(half, xpe), settings.swapSlippageBps);
+    let minOut = SwapMath.slippageFloor(quotedOut, settings.swapSlippageBps);
     try {
       switch (await icpSwapPool().swap({ zeroForOne = false; amountIn = half.toText(); amountOutMinimum = minOut.toText() })) {
         case (#err e) { #err(Errors.pool(e, "swap")) };
