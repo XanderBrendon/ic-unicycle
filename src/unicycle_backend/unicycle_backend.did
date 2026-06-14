@@ -93,6 +93,7 @@ type Unicycle =
    recordCyclesNow: (canisterId: principal) -> (Result_6);
    removeAdmin: (p: principal) -> (Result_3);
    removeCanister: (canisterId: principal) -> (Result_5);
+   setBlackholeCanister: (p: principal) -> (Result_3);
    setCanisterSuspended: (canisterId: principal, suspend: bool) -> (Result_4);
    setIcpSwapPool: (p: principal) -> (Result_3);
    setPrimaryAdmin: (p: principal) -> (Result_3);

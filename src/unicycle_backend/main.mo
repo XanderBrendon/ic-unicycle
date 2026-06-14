@@ -116,7 +116,7 @@ persistent actor class Unicycle(
   // needs the `cycles` field from the success branch.
   // ---------------------------------------------------------------------------
 
-  transient let blackhole : actor {
+  func blackhole() : actor {
     canisterStatus : (Principal) -> async {
       #ok : { cycles : Nat };
       #err : Text;
@@ -125,7 +125,9 @@ persistent actor class Unicycle(
       #ok : [{ #ok : { cycles : Nat }; #err : Text }];
       #err : Text;
     };
-  } = actor (blackholeCanisterId.toText());
+  } {
+    actor (blackholeId.toText());
+  };
 
   // Cycles ledger reference — narrow structural type pinned to just `withdraw`.
   // The vendored binding's `Self` is a factory function (the upstream service
@@ -305,6 +307,12 @@ persistent actor class Unicycle(
   // changed at runtime via setIcpSwapPool so re-pointing at a new pool needs no
   // redeploy. Persisted — survives upgrades; --mode reinstall resets to the arg.
   var swapPoolId : Principal = icpSwapPoolId;
+
+  // Re-pointable blackhole canister. Seeded from the blackholeCanisterId init
+  // arg; changed at runtime via setBlackholeCanister so swapping the blackhole
+  // (e.g. on mainnet) needs no redeploy. Persisted — survives upgrades;
+  // --mode reinstall resets to the arg.
+  var blackholeId : Principal = blackholeCanisterId;
 
   // SNS governance → root resolution cache (US21). Rebuilt from the NNS
   // SNS-Wasm registry by `refreshSnsRegistry` — a 0-delay startup timer (see
@@ -2160,7 +2168,7 @@ persistent actor class Unicycle(
 
   func checkCanister(owner : Principal, canisterId : Principal) : async () {
     let cyclesOpt = try {
-      switch (await blackhole.canisterStatus(canisterId)) {
+      switch (await blackhole().canisterStatus(canisterId)) {
         case (#ok status) {
           recordReading(canisterId, #ok(status.cycles));
           ?status.cycles;
@@ -2265,7 +2273,7 @@ persistent actor class Unicycle(
 
     let idsArr = ids.toArray();
     let outcome = try {
-      #ok(await blackhole.canisterStatuses(idsArr, settings.batchSize));
+      #ok(await blackhole().canisterStatuses(idsArr, settings.batchSize));
     } catch (e) {
       #err("blackhole unreachable: " # e.message());
     };
@@ -2351,7 +2359,7 @@ persistent actor class Unicycle(
   };
 
   public query func getBlackholeCanister() : async Principal {
-    blackholeCanisterId;
+    blackholeId;
   };
 
   public query func getIcpSwapPool() : async Principal {
@@ -2604,16 +2612,16 @@ persistent actor class Unicycle(
     // unreachable. Status payload is discarded — the recurring timer or
     // recordCyclesNow seed the first reading.
     let probe = try {
-      #ok(await blackhole.canisterStatus(canisterId));
+      #ok(await blackhole().canisterStatus(canisterId));
     } catch (e) {
       #err("blackhole unreachable: " # e.message());
     };
     switch (probe) {
       case (#err reason) {
-        return #err(#blackholeNotController { blackholeCanisterId; reason });
+        return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
       };
       case (#ok(#err msg)) {
-        return #err(#blackholeNotController { blackholeCanisterId; reason = msg });
+        return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg });
       };
       case (#ok(#ok _status)) { /* controllership confirmed */ };
     };
@@ -3748,6 +3756,18 @@ persistent actor class Unicycle(
     #ok();
   };
 
+  // Re-point the blackhole canister used for cycle-balance reads without a
+  // redeploy. Admin-gated like setIcpSwapPool; accepts any principal (a mis-set
+  // blackhole is recoverable by calling this again). The live value is read back
+  // via getBlackholeCanister.
+  public shared ({ caller }) func setBlackholeCanister(p : Principal) : async Result.Result<(), AdminError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    if (not isAdmin(caller)) return #err(#notAdmin);
+    blackholeId := p;
+    log(#info, #admin, "setBlackholeCanister " # p.toText(), ?caller);
+    #ok();
+  };
+
   public shared query ({ caller }) func getAdminSettings() : async Result.Result<AdminSettings, AdminError> {
     if (caller.isAnonymous()) return #err(#anonymous);
     if (not isAdmin(caller)) return #err(#notAdmin);
@@ -4279,6 +4299,7 @@ persistent actor class Unicycle(
         #recordCyclesNow : () -> Principal; // arg decoded for the rate pre-check below
         #removeAdmin : Any;
         #removeCanister : Any;
+        #setBlackholeCanister : Any;
         #setCanisterSuspended : Any;
         #setIcpSwapPool : Any;
         #setPrimaryAdmin : Any;
@@ -4321,6 +4342,7 @@ persistent actor class Unicycle(
       // Admin-only: mirror the internal `isAdmin(caller)` gate.
       case (
         #addAdmin _ or #removeAdmin _ or #setPrimaryAdmin _ or #setIcpSwapPool _
+        or #setBlackholeCanister _
         or #updateAdminSettings _ or #adminGetLpInfo _ or #adminGetServiceFundingInfo _
         or #adminFundLpPosition _
         or #adminHarvestLpRewards _ or #adminSubmitSnsTestMotion _ or #adminSnsSetup _

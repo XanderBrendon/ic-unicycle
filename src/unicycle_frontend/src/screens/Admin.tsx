@@ -234,6 +234,29 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
     );
   };
 
+  // ---- service config (blackhole) ----
+  const [blackholeText, setBlackholeText] = useState('');
+  useEffect(() => {
+    if (config.blackhole) setBlackholeText(config.blackhole.toString());
+  }, [config.blackhole]);
+  const blackholeDirty = !!config.blackhole && blackholeText.trim() !== config.blackhole.toString();
+  const saveBlackhole = async () => {
+    const res = await config.setBlackholeCanister(blackholeText.trim());
+    toast(
+      res.ok ? (
+        <>
+          <Icon name="check" size={14} style={{ color: 'var(--accent-ink)' }} />
+          Blackhole canister updated
+        </>
+      ) : (
+        <>
+          <Icon name="x" size={14} style={{ color: 'var(--crit)' }} />
+          <ErrorText error={res} />
+        </>
+      ),
+    );
+  };
+
   // ---- LP / loyalty / funding info ----
   const [lp, setLp] = useState<AdminLpInfo | null>(null);
   const [loyalty, setLoyalty] = useState<AdminLoyaltyInfo | null>(null);
@@ -446,8 +469,17 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                 )}
               </div>
             </Field>
+            <Field label="Blackhole">
+              <div className="input-group">
+                <input className="input mono" value={blackholeText} onChange={(e) => setBlackholeText(e.target.value)} style={{ flex: 1 }} />
+                {blackholeDirty && (
+                  <button className="btn" onClick={saveBlackhole}>
+                    Set
+                  </button>
+                )}
+              </div>
+            </Field>
             <div style={{ marginTop: 12 }}>
-              <KV k="Blackhole">{config.blackhole ? fmtPid(config.blackhole.toString(), 8, 5) : '—'}</KV>
               <KV k="SNS-Wasm registry">{config.snsWasm ? fmtPid(config.snsWasm.toString(), 8, 5) : '—'}</KV>
             </div>
             <div className="faint" style={{ fontSize: 10.5, marginTop: 8 }}>

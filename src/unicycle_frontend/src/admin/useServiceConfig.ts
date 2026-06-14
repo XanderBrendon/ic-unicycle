@@ -13,6 +13,7 @@ export interface UseServiceConfigResult {
   error: UserError | null;
   refresh: () => void;
   setIcpSwapPool: (text: string) => Promise<{ ok: true } | { ok: false; message: string; detail?: string }>;
+  setBlackholeCanister: (text: string) => Promise<{ ok: true } | { ok: false; message: string; detail?: string }>;
 }
 
 export function useServiceConfig(identity: Identity | null): UseServiceConfigResult {
@@ -88,5 +89,31 @@ export function useServiceConfig(identity: Identity | null): UseServiceConfigRes
     [identity, refresh],
   );
 
-  return { icpSwapPool, blackhole, snsWasm, loading, error, refresh, setIcpSwapPool };
+  const setBlackholeCanister = useCallback(
+    async (text: string) => {
+      if (!identity) return { ok: false as const, message: "You're not signed in — sign in and try again." };
+      let p: Principal;
+      try {
+        p = Principal.fromText(text.trim());
+      } catch {
+        return {
+          ok: false as const,
+          message: "That isn't a valid canister id — paste the blackhole canister's canister id.",
+        };
+      }
+      try {
+        const result = await createUnicycleBackendActor(identity).setBlackholeCanister(p);
+        if (result.__kind__ === 'ok') {
+          refresh();
+          return { ok: true as const };
+        }
+        return { ok: false as const, ...formatAdminError(result.err) };
+      } catch (e) {
+        return { ok: false as const, ...unexpectedError('update the service config', e) };
+      }
+    },
+    [identity, refresh],
+  );
+
+  return { icpSwapPool, blackhole, snsWasm, loading, error, refresh, setIcpSwapPool, setBlackholeCanister };
 }
