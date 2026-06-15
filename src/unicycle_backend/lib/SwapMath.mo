@@ -54,6 +54,21 @@ module {
     if (slippageBps >= 10_000) { 0 } else { (expected * ((10_000 - slippageBps) : Nat)) / 10_000 };
   };
 
+  // Decide whether pending LP fees clear the harvest threshold, short-circuiting
+  // the ICP valuation: the TCYCLES leg alone may already clear it, or the
+  // position may have no ICP owed — neither case needs the CMC rate. #needsRate
+  // means the caller must price the ICP leg to decide:
+  // owedTcycles + expectedTcyclesOut(owedIcp, xpe) >= threshold.
+  public func harvestThresholdPrecheck(owedTcycles : Nat, owedIcp : Nat, threshold : Nat) : {
+    #meets;
+    #below;
+    #needsRate;
+  } {
+    if (owedTcycles >= threshold) { #meets } else if (owedIcp == 0) { #below } else {
+      #needsRate;
+    };
+  };
+
   // ceil-divide so a buy never under-funds the target; xpe==0 -> 0 (trap-free)
   public func mintIcpNeeded(target : Nat, xpe : Nat) : Nat {
     if (xpe == 0) { 0 } else {

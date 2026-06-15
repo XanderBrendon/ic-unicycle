@@ -1,8 +1,8 @@
 import { test } "mo:test";
 import Settings "../lib/Settings";
 
-func base() : { cycleCheckIntervalSeconds : Nat; maxReadingsPerCanister : Nat; maxTopUpsPerCanister : Nat; batchSize : Nat; baseServiceFeeBps : Nat; lpDrainThresholdTcycles : Nat; serviceFundingThresholdTcycles : Nat; maxOwners : Nat; maxCanistersPerOwner : Nat; swapSlippageBps : Nat } {
-  { cycleCheckIntervalSeconds = 86_400; maxReadingsPerCanister = 90; maxTopUpsPerCanister = 90; batchSize = 10; baseServiceFeeBps = 1_000; lpDrainThresholdTcycles = 1_000_000_000_000; serviceFundingThresholdTcycles = 10_000_000_000_000; maxOwners = 1_000; maxCanistersPerOwner = 100; swapSlippageBps = 300 };
+func base() : { cycleCheckIntervalSeconds : Nat; maxReadingsPerCanister : Nat; maxTopUpsPerCanister : Nat; batchSize : Nat; baseServiceFeeBps : Nat; lpDrainThresholdTcycles : Nat; serviceFundingThresholdTcycles : Nat; maxOwners : Nat; maxCanistersPerOwner : Nat; swapSlippageBps : Nat; harvestThresholdTcycles : Nat } {
+  { cycleCheckIntervalSeconds = 86_400; maxReadingsPerCanister = 90; maxTopUpsPerCanister = 90; batchSize = 10; baseServiceFeeBps = 1_000; lpDrainThresholdTcycles = 1_000_000_000_000; serviceFundingThresholdTcycles = 10_000_000_000_000; maxOwners = 1_000; maxCanistersPerOwner = 100; swapSlippageBps = 300; harvestThresholdTcycles = 100_000_000_000 };
 };
 
 test("valid settings pass", func() {

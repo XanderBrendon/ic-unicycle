@@ -34,7 +34,9 @@ import DrainDetection "lib/DrainDetection";
 import Report "lib/Report";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
+import Migration "migration";
 
+(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -210,6 +212,13 @@ persistent actor class Unicycle(
       #ok : { amount0 : Nat; amount1 : Nat };
       #err : IcpSwapPoolError;
     };
+    // Live unclaimed fees for a position (token0 = ICP, token1 = TCYCLES). A
+    // query, awaited from update contexts the same way `quote` is. Narrow
+    // two-field record; Candid subtyping drops any other fields on decode.
+    refreshIncome : shared query Nat -> async {
+      #ok : { tokensOwed0 : Nat; tokensOwed1 : Nat };
+      #err : IcpSwapPoolError;
+    };
   } {
     actor (swapPoolId.toText());
   };
@@ -298,6 +307,7 @@ persistent actor class Unicycle(
     maxOwners = 10_000;
     maxCanistersPerOwner = 200;
     swapSlippageBps = 300; // 3% floor on internal LP/harvest swaps (FIN-1)
+    harvestThresholdTcycles = 100_000_000_000; // 0.1 T — min pending reward worth harvesting
   };
 
   let admins : Set.Set<Principal> = Set.empty();
@@ -2063,6 +2073,33 @@ persistent actor class Unicycle(
     } catch (e) { #err("tcycles ledger unreachable (admin slice): " # e.message()) };
   };
 
+  // Value the position's pending fees against the harvest threshold, consulting
+  // the CMC rate only when the TCYCLES leg alone doesn't already clear it and
+  // there is ICP owed (US18 review). Callers invoke it only when the threshold is
+  // enabled (> 0). #err means the value can't be determined right now (pool or
+  // rate unreachable) — the harvest couldn't complete anyway, so callers skip.
+  func harvestPendingMeetsThreshold(positionId : Nat) : async { #meets; #below; #err : Text } {
+    let income = try {
+      switch (await icpSwapPool().refreshIncome(positionId)) {
+        case (#ok inc) { inc };
+        case (#err e)  { return #err(Errors.pool(e, "refreshIncome")) };
+      };
+    } catch (e) { return #err("pool refreshIncome unreachable: " # e.message()) };
+    switch (SwapMath.harvestThresholdPrecheck(income.tokensOwed1, income.tokensOwed0, settings.harvestThresholdTcycles)) {
+      case (#meets) { #meets };
+      case (#below) { #below };
+      case (#needsRate) {
+        let xpe = switch (await cmcCyclesPerE8s()) {
+          case (#ok r)  { r };
+          case (#err e) { return #err("no rate to value ICP leg: " # e) };
+        };
+        if (xpe == 0) return #err("no rate to value ICP leg: cmc rate zero");
+        let total = income.tokensOwed1 + SwapMath.expectedTcyclesOut(income.tokensOwed0, xpe);
+        if (total >= settings.harvestThresholdTcycles) { #meets } else { #below };
+      };
+    };
+  };
+
   func runHarvest() : async () {
     // Claim the guard synchronously before the first await — mirrors runLpDrain.
     if (harvestInFlight) return;
@@ -2161,6 +2198,22 @@ persistent actor class Unicycle(
     };
     recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = total; toAdmin; toSurplus = surplus; outcome = #ok });
     harvestInFlight := false;
+  };
+
+  // Recurring harvest entry: apply the harvest threshold, then run the saga. A
+  // sub-threshold (or unvaluable) cycle skips silently — recording an event every
+  // 4h while fees accrue would churn the 30-deep harvestHistory and evict real
+  // harvests. `runHarvest` re-reads the position and reclaims the guard itself.
+  func runHarvestGated() : async () {
+    let positionId = switch (lpPositionId) { case (?id) id; case null { return } };
+    if (settings.harvestThresholdTcycles > 0) {
+      switch (await harvestPendingMeetsThreshold(positionId)) {
+        case (#meets) {};
+        case (#below) { return };
+        case (#err _) { return };
+      };
+    };
+    await runHarvest();
   };
 
   // Read the live config for one pair (used by both callers below).
@@ -2350,7 +2403,7 @@ persistent actor class Unicycle(
           removeTrackedEntry(owner, canisterId);
         };
         await runTopUps(candidates.toArray());
-        await runHarvest();
+        await runHarvestGated();
         await runLpDrain();
         await runSnsDepositChecks();
         await runSnsReportChecks();
@@ -3997,6 +4050,23 @@ persistent actor class Unicycle(
     if (caller.isAnonymous()) return #err(#anonymous);
     if (not isAdmin(caller)) return #err(#notAdmin);
     log(#info, #admin, "adminHarvestLpRewards", ?caller);
+    // Apply the same harvest threshold as the recurring path. Below threshold,
+    // return a benign zero event (nothing claimed) instead of running the saga; a
+    // valuation error falls through so runHarvest surfaces the real failure.
+    switch (lpPositionId) {
+      case (?pid) {
+        if (settings.harvestThresholdTcycles > 0) {
+          switch (await harvestPendingMeetsThreshold(pid)) {
+            case (#below) {
+              return #ok({ at = Int.abs(Time.now()); claimedIcp = 0; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #ok });
+            };
+            case (#meets) {};
+            case (#err _)  {};
+          };
+        };
+      };
+      case null {};
+    };
     await runHarvest();
     let event = switch (harvestHistory.size()) {
       case 0 { { at = Int.abs(Time.now()); claimedIcp = 0; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #ok } };

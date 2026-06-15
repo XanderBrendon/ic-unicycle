@@ -389,6 +389,7 @@ module {
     maxOwners : Nat;                  // cap on distinct owner principals in `tracked` (abuse: unbounded heap)
     maxCanistersPerOwner : Nat;       // cap on canisters one owner may track (abuse: unbounded heap)
     swapSlippageBps : Nat;            // FIN-1 — min output floor for internal LP/harvest swaps, vs CMC peg
+    harvestThresholdTcycles : Nat;    // default 100_000_000_000 (0.1 T); min pending-reward value to harvest; 0 disables
   };
 
   public type AdminTrackedRow = {

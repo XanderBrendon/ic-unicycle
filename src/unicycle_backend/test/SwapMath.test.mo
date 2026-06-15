@@ -72,3 +72,16 @@ test("directTopUpNeeded = amount + fee + 2*ledgerFee; deficit saturates", func()
   assert SwapMath.deficit(125, 100) == 25;
   assert SwapMath.deficit(50, 100) == 0;
 });
+
+test("harvestThresholdPrecheck: TCYCLES leg alone clears -> #meets (no rate needed)", func() {
+  switch (SwapMath.harvestThresholdPrecheck(100, 0, 100)) { case (#meets) {}; case _ { assert false } }; // exactly at threshold
+  switch (SwapMath.harvestThresholdPrecheck(150, 5, 100)) { case (#meets) {}; case _ { assert false } }; // over, ICP owed irrelevant
+});
+
+test("harvestThresholdPrecheck: below threshold with no ICP owed -> #below", func() {
+  switch (SwapMath.harvestThresholdPrecheck(99, 0, 100)) { case (#below) {}; case _ { assert false } };
+});
+
+test("harvestThresholdPrecheck: below on TCYCLES but ICP owed -> #needsRate", func() {
+  switch (SwapMath.harvestThresholdPrecheck(50, 1, 100)) { case (#needsRate) {}; case _ { assert false } };
+});

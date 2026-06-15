@@ -44,6 +44,7 @@ const SETTING_FIELDS: Array<{ key: SettingKey; label: string; hint?: string }> =
   { key: 'baseServiceFeeBps', label: 'Base service fee', hint: 'bps, max 2000 = 20%' },
   { key: 'lpDrainThresholdTcycles', label: 'LP drain threshold', hint: 'cycles, min 1e8' },
   { key: 'serviceFundingThresholdTcycles', label: 'Service funding threshold', hint: 'TCYCLES, 0 disables redirection' },
+  { key: 'harvestThresholdTcycles', label: 'Harvest threshold', hint: 'TCYCLES, 0 disables; min reward to collect' },
   { key: 'maxOwners', label: 'Max owners', hint: 'distinct principals, abuse cap' },
   { key: 'maxCanistersPerOwner', label: 'Max canisters / owner', hint: 'abuse cap' },
   { key: 'swapSlippageBps', label: 'Swap slippage', hint: 'bps, max 2000 = 20%; floor on LP/harvest swaps' },
@@ -182,6 +183,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
         baseServiceFeeBps: String(s.baseServiceFeeBps),
         lpDrainThresholdTcycles: String(s.lpDrainThresholdTcycles),
         serviceFundingThresholdTcycles: String(s.serviceFundingThresholdTcycles),
+        harvestThresholdTcycles: String(s.harvestThresholdTcycles),
         maxOwners: String(s.maxOwners),
         maxCanistersPerOwner: String(s.maxCanistersPerOwner),
         swapSlippageBps: String(s.swapSlippageBps),
@@ -206,6 +208,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
         baseServiceFeeBps: BigInt(form.baseServiceFeeBps),
         lpDrainThresholdTcycles: BigInt(form.lpDrainThresholdTcycles),
         serviceFundingThresholdTcycles: BigInt(form.serviceFundingThresholdTcycles),
+        harvestThresholdTcycles: BigInt(form.harvestThresholdTcycles),
         maxOwners: BigInt(form.maxOwners),
         maxCanistersPerOwner: BigInt(form.maxCanistersPerOwner),
         swapSlippageBps: BigInt(form.swapSlippageBps),
@@ -309,7 +312,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
         res.__kind__ === 'ok' ? (
           <>
             <Icon name="bolt" size={14} style={{ color: 'var(--accent-ink)' }} />
-            Harvested LP rewards
+            {res.ok.claimedTcycles === 0n ? 'Nothing to harvest yet' : 'Harvested LP rewards'}
           </>
         ) : (
           <>
