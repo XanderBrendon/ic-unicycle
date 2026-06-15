@@ -73,6 +73,12 @@ Whenever the official client (`@icp-sdk/auth`, `@icp-sdk/core`, `@icp-sdk/canist
 
 If the client covers most of what you need but is missing a specific piece, narrow your custom code to that piece — don't replace the rest. When in doubt, check the installed `.d.ts` types under `node_modules/@icp-sdk/` before writing parallel logic. For libraries not yet installed, consult the official SDK documentation at https://js.icp.build/ to see whether a packaged solution exists before reaching for a custom implementation.
 
+## 7. Planning docs live in the private planning repo
+
+**All specs, design docs, and planning notes go in the `planning/` submodule — never in the public code repo.**
+
+`planning/` is a git submodule backed by the private `unicycle_planning` repo. Write specs and design docs under `planning/docs/superpowers/specs/` (alongside the existing ones); do not create a `docs/` tree in the code repo for them. This keeps planning material out of the public codebase.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
