@@ -1,0 +1,10 @@
+// ICRC-1 index-ng init, wired to the SNS token ledger (bli7d-…). Default block
+// retrieval intervals.
+(opt variant {
+  Init = record {
+    ledger_id = principal "@@sns_ledger@@";
+    retrieve_blocks_from_ledger_interval_seconds = null;
+    min_retrieve_blocks_from_ledger_interval_seconds = null;
+    max_retrieve_blocks_from_ledger_interval_seconds = null;
+  }
+})

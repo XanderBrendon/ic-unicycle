@@ -68,11 +68,14 @@ canisters:
         candid: vendor/cmc/cmc_stub.did
     init_args: '()'
 
-  # Local stub for the NNS SNS-Wasm registry (US21). Resolves the backend's
-  # governance→root lookup against a seedable in-memory list; mainnet deploys
-  # init-arg the backend at the real SNS-Wasm canister
-  # (`qaa6y-5yaaa-aaaaa-aaafa-cai`) and never load this canister. Seed a
-  # governance→root mapping with
+  # Thin shim for the NNS SNS-Wasm REGISTRY (US21). This is the one SNS-adjacent
+  # canister we do NOT replace with the real implementation: SNS-Wasm is an NNS
+  # canister whose real `deploy_new_sns` is gated to NNS governance and cannot be
+  # driven without standing up the full NNS — which this local setup deliberately
+  # avoids. unicycle's only use of it is a single `list_deployed_snses` read, and
+  # the shim reproduces that response exactly, pointing at the REAL local
+  # governance + root. Mainnet init-args the backend at the real SNS-Wasm
+  # (`qaa6y-5yaaa-aaaaa-aaafa-cai`). Seed the governance→root mapping with
   # `devscripts/seed-sns-wasm-stub.sh <governance-pid> <root-pid>`.
   - name: sns_wasm
     recipe:
@@ -82,20 +85,71 @@ canisters:
         candid: vendor/sns_wasm/sns_wasm_stub.did
     init_args: '()'
 
-  # Local stub for an SNS governance canister (US22). Models just enough of
-  # `manage_neuron` to gate hotkey-authorized proposal submission; mainnet has a
-  # real governance canister per SNS (discovered via the SNS-Wasm registry) and
-  # the backend never loads this stub there. Seed a neuron's hotkey + register it
-  # with the backend via `devscripts/seed-sns-governance-stub.sh <backend-pid>`
-  # (the sns_wasm stub must first map this canister's id → a root). Excluded from
-  # the `production` environment below.
+  # REAL DFINITY SNS governance canister — byte-identical to Sneed DAO's mainnet
+  # deployment (module_hash d41e8cd0…, IC release commit b904c9dd…). Installed in
+  # Normal mode (`mode = 1`) with a single dominant neuron whose permissions
+  # hotkey the unicycle backend (SUBMIT_PROPOSAL + VOTE). Because that neuron is
+  # the only voter it holds 100% of the voting power, so every proposal unicycle
+  # submits through it auto-adopts and executes immediately — reproducing a
+  # cooperating DAO. Parameters are copied verbatim from Sneed
+  # (`get_nervous_system_parameters`) except two background timers that would
+  # call absent NNS canisters locally are disabled (see governance_init.candid).
+  # The .wasm.gz is installed as-is (the IC accepts gzip modules) so the local
+  # canister's module_hash equals mainnet Sneed's. Local fixture only — keeps its
+  # cached id a5dhi-…; excluded from the `production` environment below.
   - name: sns_governance
-    recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: vendor/sns_governance/sns_governance_stub.mo
-        candid: vendor/sns_governance/sns_governance_stub.did
-    init_args: '()'
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/sns_governance/sns_governance.wasm.gz
+          sha256: d41e8cd08a2161e56cc6f4eb99733c9a46a38b98d3f40ce80e444dc33c5580ad
+    # Binary (didc-encoded against governance.did) — regenerate from
+    # governance_init.candid with devscripts/encode-sns-init.sh.
+    init_args:
+      path: vendor/sns_governance/governance_init.bin
+      format: bin
+
+  # REAL DFINITY SNS token ledger — reuses the already-vendored ic-icrc1-ledger
+  # wasm. The SNS's governance owns the minting account; root controls archives.
+  # Not on unicycle's critical path (treasury top-ups move ICP on the NNS ICP
+  # ledger), but governance references it at init. Local fixture only.
+  - name: sns_ledger
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/icrc1/icrc1_ledger.wasm
+          sha256: a273d741019b4324b22e2e64cfb0239de148ae9693e8801102a04118dfd383c0
+    init_args:
+      path: vendor/sns_ledger/ledger_init.bin
+      format: bin
+
+  # REAL DFINITY ICRC-1 index-ng — byte-identical to Sneed's index
+  # (module_hash dab6808d…, IC commit cf41372…). Wired to the SNS ledger; root
+  # references it at init. Local fixture only.
+  - name: sns_index
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/sns_index/sns_index.wasm.gz
+          sha256: dab6808d0dfc06e5e88336d0c3d3e45e5448c6e36c2a781f3e9e09bd450f528c
+    init_args:
+      path: vendor/sns_index/index_init.bin
+      format: bin
+
+  # REAL DFINITY SNS root canister — byte-identical to Sneed's root
+  # (module_hash d26b930d…, IC commit 724ae41…). Wired to governance/ledger/
+  # index; swap is a placeholder (Sneed's swap id — never called in Normal mode).
+  # unicycle never calls root directly; it resolves root only as a map key via
+  # the SNS-Wasm registry. Local fixture only.
+  - name: sns_root
+    build:
+      steps:
+        - type: pre-built
+          path: vendor/sns_root/sns_root.wasm.gz
+          sha256: d26b930d8756bb75b6caa5195346499b18bbd6448810386e1b8f2f1f808ade86
+    init_args:
+      path: vendor/sns_root/root_init.bin
+      format: bin
 
   # Local-only real ICRC-1 ledger (DFINITY ic-icrc1-ledger, release
   # ledger-suite-icrc-2026-03-09) used to exercise US19's custom-token recovery
@@ -121,9 +175,11 @@ environments:
   # canisters so routine deploys never touch the ICRC ledger fixture — the
   # ledger's Init-only arg traps on upgrade, and it rarely changes. Deploy /
   # reinstall it on demand with the `ledger` environment below.
+  # SNS canisters are listed ledger → index → root → governance so governance is
+  # installed last (its startup tasks expect the SNS ledger to be live).
   - name: local
     network: local
-    canisters: [unicycle_backend, unicycle_frontend, balance_checker, icpswap_pool, cmc, sns_wasm, sns_governance]
+    canisters: [unicycle_backend, unicycle_frontend, balance_checker, icpswap_pool, cmc, sns_wasm, sns_ledger, sns_index, sns_root, sns_governance]
 
   # Local-only fixture deploy: `icp deploy -e ledger` (first time) or
   # `icp deploy -e ledger --mode reinstall` (subsequent — clears token state,

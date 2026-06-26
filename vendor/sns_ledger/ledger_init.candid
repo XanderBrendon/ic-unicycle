@@ -1,0 +1,22 @@
+// SNS token ledger init (reuses the vendored ic-icrc1-ledger wasm). The SNS's
+// governance (a5dhi-…) owns the minting account; root (bfksl-…) controls the
+// archives. transfer_fee matches Sneed's transaction_fee_e8s (1_000). No initial
+// balances — unicycle's treasury top-ups move ICP on the NNS ICP ledger, not
+// this SNS-token ledger, so its balances are irrelevant to the tests.
+(variant {
+  Init = record {
+    token_symbol = "SNEEDLOCAL";
+    token_name = "Sneed DAO (local test)";
+    minting_account = record { owner = principal "@@sns_governance@@" };
+    transfer_fee = 1_000 : nat;
+    decimals = opt (8 : nat8);
+    metadata = vec {};
+    initial_balances = vec {};
+    feature_flags = opt record { icrc2 = true };
+    archive_options = record {
+      num_blocks_to_archive = 1_000 : nat64;
+      trigger_threshold = 2_000 : nat64;
+      controller_id = principal "@@sns_root@@";
+    };
+  }
+})

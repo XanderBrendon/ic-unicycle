@@ -1,0 +1,16 @@
+// Real SNS root init payload. Wires the SNS bundle; placeholder principal tokens
+// are filled with live local canister ids by devscripts/encode-sns-init.sh. The
+// swap id hshru-… is
+// Sneed's real swap id as an inert placeholder (never called locally). No dapp
+// canisters are registered; testflight = false so it behaves like a launched SNS.
+(record {
+  governance_canister_id = opt principal "@@sns_governance@@";
+  ledger_canister_id = opt principal "@@sns_ledger@@";
+  index_canister_id = opt principal "@@sns_index@@";
+  swap_canister_id = opt principal "hshru-3iaaa-aaaaq-aaciq-cai";
+  dapp_canister_ids = vec {};
+  archive_canister_ids = vec {};
+  extensions = null;
+  testflight = false;
+  timers = null;
+})
