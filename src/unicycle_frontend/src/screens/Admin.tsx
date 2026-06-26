@@ -368,6 +368,8 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
   }, [adminsHook.cachedControllers, adminsHook.admins, adminsHook.primaryAdmin]);
 
   const [addAdminOpen, setAddAdminOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ owner: Principal; canisterId: Principal } | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
 
   const runAdminAction = async (
     p: Promise<{ ok: true } | { ok: false; message: string; detail?: string }>,
@@ -752,6 +754,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                 <th className="num">Min</th>
                 <th className="num">Top-up</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -773,6 +776,16 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                     <td className="num mono"><TC raw={row.config.cycleTopUpAmount} /></td>
                     <td>
                       <StatusBadge status={status} dot={false} />
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="iconbtn"
+                        style={{ width: 27, height: 27 }}
+                        title="Remove tracked canister"
+                        onClick={() => setRemoveTarget({ owner: row.owner, canisterId: row.canisterId })}
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
                     </td>
                   </tr>
                 );
@@ -834,6 +847,51 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
       )}
 
       {addAdminOpen && <AddAdminModal onClose={() => setAddAdminOpen(false)} onAdd={adminsHook.addAdmin} />}
+      {removeTarget && (
+        <Modal
+          title="Remove tracked canister?"
+          eyebrow={`// owner ${fmtPid(removeTarget.owner.toString(), 6, 4)}`}
+          onClose={() => (removeBusy ? undefined : setRemoveTarget(null))}
+          footer={
+            <>
+              <button className="btn" disabled={removeBusy} onClick={() => setRemoveTarget(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn accent"
+                disabled={removeBusy}
+                onClick={async () => {
+                  setRemoveBusy(true);
+                  const res = await visibility.removeTracked(removeTarget.owner, removeTarget.canisterId);
+                  setRemoveBusy(false);
+                  toast(
+                    res.ok ? (
+                      <>
+                        <Icon name="check" size={14} style={{ color: 'var(--accent-ink)' }} />
+                        Canister removed
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="x" size={14} style={{ color: 'var(--crit)' }} />
+                        <ErrorText error={res} />
+                      </>
+                    ),
+                  );
+                  setRemoveTarget(null);
+                  if (res.ok) visibility.refresh();
+                }}
+              >
+                {removeBusy ? 'Removing…' : 'Remove'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ fontSize: 13 }}>
+            <span className="mono">{fmtPid(removeTarget.canisterId.toString(), 8, 5)}</span> will stop being monitored for owner{' '}
+            <span className="mono">{fmtPid(removeTarget.owner.toString(), 6, 4)}</span>. They can re-add it later.
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

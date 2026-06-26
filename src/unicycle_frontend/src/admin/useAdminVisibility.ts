@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
+import type { Principal } from '@icp-sdk/core/principal';
 import { createUnicycleBackendActor } from '../auth/actor';
+import { AdminRemoveCanisterError } from '../bindings/unicycle_backend/unicycle_backend';
 import type {
   AdminMetrics,
   AdminTimerInfo,
   AdminTopUpRow,
   AdminTrackedRow,
 } from '../bindings/unicycle_backend/unicycle_backend';
+
+export type RemoveTrackedResult = { ok: true } | { ok: false; message: string; detail?: string };
 
 export interface AdminVisibilityState {
   tracked: AdminTrackedRow[] | null;
@@ -16,6 +20,7 @@ export interface AdminVisibilityState {
   loading: boolean;
   error: string | null;
   refresh: () => void;
+  removeTracked: (owner: Principal, canisterId: Principal) => Promise<RemoveTrackedResult>;
 }
 
 const TOP_UPS_LIMIT = 100n;
@@ -30,6 +35,29 @@ export function useAdminVisibility(identity: Identity | null): AdminVisibilitySt
   const [tick, setTick] = useState(0);
 
   const refresh = useCallback(() => setTick((n) => n + 1), []);
+
+  const removeTracked = useCallback(
+    async (owner: Principal, canisterId: Principal): Promise<RemoveTrackedResult> => {
+      if (!identity) return { ok: false, message: 'Not signed in' };
+      try {
+        const res = await createUnicycleBackendActor(identity).adminRemoveCanister(owner, canisterId);
+        if (res.__kind__ === 'ok') return { ok: true };
+        const err = res.err;
+        const message =
+          err === AdminRemoveCanisterError.topUpInFlight
+            ? 'A top-up is in flight for this canister — try again shortly.'
+            : err === AdminRemoveCanisterError.notTracked
+              ? 'Already removed.'
+              : err === AdminRemoveCanisterError.notAdmin
+                ? 'Not authorized.'
+                : 'Could not remove canister.';
+        return { ok: false, message, detail: String(err) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [identity],
+  );
 
   useEffect(() => {
     if (!identity) {
@@ -78,5 +106,5 @@ export function useAdminVisibility(identity: Identity | null): AdminVisibilitySt
     };
   }, [identity, tick]);
 
-  return { tracked, topUps, timerInfo, metrics, loading, error, refresh };
+  return { tracked, topUps, timerInfo, metrics, loading, error, refresh, removeTracked };
 }
