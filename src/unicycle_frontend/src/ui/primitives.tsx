@@ -141,6 +141,49 @@ export function IdTag({
   );
 }
 
+// Truncated pid + an always-visible copy button that writes the FULL id to the
+// clipboard (table-cell variant of IdTag, without the optional name slot).
+export function CopyId({
+  id,
+  head = 5,
+  tail = 3,
+  size = 11.5,
+  faint = false,
+}: {
+  id: string;
+  head?: number;
+  tail?: number;
+  size?: number;
+  faint?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard
+      ?.writeText(id)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1100);
+      })
+      .catch(() => {});
+  };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      <span className={faint ? 'mono faint' : 'mono'} style={{ fontSize: size }} title={id}>
+        {fmtPid(id, head, tail)}
+      </span>
+      <button
+        className="iconbtn"
+        style={{ width: 20, height: 20, border: 'none', background: 'transparent', flex: 'none' }}
+        onClick={copy}
+        title="Copy id"
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={11} style={{ color: copied ? 'var(--accent-ink)' : 'var(--text-2)' }} />
+      </button>
+    </span>
+  );
+}
+
 // The fully-surfaced, more-technical tail of an error: visibly separated into
 // its own block and de-emphasized (muted small mono), so it reads as secondary
 // to the friendly message above it.

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
 import { createUnicycleBackendActor } from '../auth/actor';
-import { Panel, Field, KV, StatusBadge, Modal, Empty, Tabs, ErrorText, TC } from '../ui/primitives';
+import { Panel, Field, KV, StatusBadge, Modal, Empty, Tabs, ErrorText, TC, CopyId } from '../ui/primitives';
 import { Icon } from '../ui/icons';
 import { fmtAgo, fmtICP, fmtInt, fmtPid, fmtTC, healthStatus, nsToMs, type UserError } from '../ui/format';
 import { useNow } from '../ui/now';
@@ -538,7 +538,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                   key={a.text}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}
                 >
-                  <span className="mono" style={{ fontSize: 11.5, flex: 1 }}>{fmtPid(a.text, 10, 6)}</span>
+                  <span style={{ flex: 1 }}><CopyId id={a.text} head={10} tail={6} /></span>
                   {a.primary && <span className="badge ok">primary</span>}
                   {a.controller && <span className="badge muted">controller</span>}
                   {!a.primary && (
@@ -766,8 +766,8 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                 );
                 return (
                   <tr key={i}>
-                    <td className="mono faint" style={{ fontSize: 11 }}>{fmtPid(row.owner.toString(), 6, 4)}</td>
-                    <td className="mono" style={{ fontSize: 11.5 }}>{fmtPid(row.canisterId.toString(), 8, 5)}</td>
+                    <td><CopyId id={row.owner.toString()} head={6} tail={4} size={11} faint /></td>
+                    <td><CopyId id={row.canisterId.toString()} head={8} tail={5} size={11.5} /></td>
                     <td className="num mono"><TC raw={cur} /></td>
                     <td className="num mono"><TC raw={row.config.minCycleBalance} /></td>
                     <td className="num mono"><TC raw={row.config.cycleTopUpAmount} /></td>
@@ -803,8 +803,8 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                 return (
                   <tr key={i}>
                     <td className="mono faint" style={{ fontSize: 11 }}>{fmtAgo(nsToMs(u.attemptedAt), now)}</td>
-                    <td className="mono faint" style={{ fontSize: 11 }}>{fmtPid(row.owner.toString(), 6, 4)}</td>
-                    <td className="mono" style={{ fontSize: 11.5 }}>{fmtPid(row.canisterId.toString(), 7, 4)}</td>
+                    <td><CopyId id={row.owner.toString()} head={6} tail={4} size={11} faint /></td>
+                    <td><CopyId id={row.canisterId.toString()} head={7} tail={4} size={11.5} /></td>
                     <td className="num mono" style={{ fontWeight: 600 }}><TC raw={u.amount} /> TC</td>
                     <td>
                       {ok && u.result.__kind__ === 'ok' ? (
