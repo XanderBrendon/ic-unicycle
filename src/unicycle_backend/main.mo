@@ -57,6 +57,7 @@ persistent actor class Unicycle(
   public type RecordCyclesError = Types.RecordCyclesError;
   public type SuspendCanisterError = Types.SuspendCanisterError;
   public type RemoveCanisterError = Types.RemoveCanisterError;
+  public type AdminRemoveCanisterError = Types.AdminRemoveCanisterError;
   public type TrackedCanister = Types.TrackedCanister;
   public type CycleReading = Types.CycleReading;
   public type SwapAttempt = Types.SwapAttempt;
@@ -2773,6 +2774,28 @@ persistent actor class Unicycle(
     #ok();
   };
 
+  // Admin twin of removeCanister: an admin drops another owner's tracked
+  // canister. Delegates to removeCanisterFor so the notTracked + topUpInFlight
+  // guards (and the removeTrackedEntry mutation) are shared with the user path;
+  // only the auth gate differs. No stable-state change beyond the existing
+  // removeTrackedEntry, so nothing to migrate.
+  public shared ({ caller }) func adminRemoveCanister(
+    owner : Principal,
+    canisterId : Principal,
+  ) : async Result.Result<(), AdminRemoveCanisterError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    if (not isAdmin(caller)) return #err(#notAdmin);
+    switch (removeCanisterFor(owner, canisterId)) {
+      case (#err(#anonymous)) { #err(#notTracked) }; // owner is a real pid; treat as not tracked
+      case (#err(#notTracked)) { #err(#notTracked) };
+      case (#err(#topUpInFlight)) { #err(#topUpInFlight) };
+      case (#ok) {
+        log(#info, #admin, "adminRemoveCanister owner=" # owner.toText() # " canister=" # canisterId.toText(), ?caller);
+        #ok();
+      };
+    };
+  };
+
   public shared ({ caller }) func recordCyclesNow(
     canisterId : Principal
   ) : async Result.Result<(), RecordCyclesError> {
@@ -4333,6 +4356,7 @@ persistent actor class Unicycle(
         #adminHarvestLpRewards : Any;
         #adminListAllTracked : Any;
         #adminListRecentTopUps : Any;
+        #adminRemoveCanister : Any;
         #adminSeedDrainFixture : Any;
         #adminSnsRunDepositCheck : Any;
         #adminSnsRunDrainAlertCheck : Any;
@@ -4423,6 +4447,7 @@ persistent actor class Unicycle(
         or #adminHarvestLpRewards _ or #adminSubmitSnsTestMotion _ or #adminSnsSetup _
         or #adminSnsRunDepositCheck _ or #adminSnsRunReportCheck _
         or #adminSnsRunDrainAlertCheck _ or #adminSeedDrainFixture _
+        or #adminRemoveCanister _
       ) { isAdmin(caller) };
 
       // SNS governance-only execute twins: legitimate callers are governance

@@ -42,6 +42,7 @@ type Unicycle =
    adminHarvestLpRewards: () -> (Result_16);
    adminListAllTracked: () -> (Result_15) query;
    adminListRecentTopUps: (limit: nat) -> (Result_14) query;
+   adminRemoveCanister: (owner: principal, canisterId: principal) -> (Result_25);
    adminSeedDrainFixture: (owner: principal, canisterId: principal, points:
     vec DrainSeedPoint) -> (Result_3);
    adminSnsRunDepositCheck: (governance: principal) -> (Result_13);
@@ -364,6 +365,11 @@ type Result_3 =
    err: AdminError;
    ok;
  };
+type Result_25 =
+ variant {
+   err: AdminRemoveCanisterError;
+   ok;
+ };
 type Result_24 =
  variant {
    err: AdminError;
@@ -683,6 +689,13 @@ type AdminError =
  variant {
    anonymous;
    notAdmin;
+ };
+type AdminRemoveCanisterError =
+ variant {
+   anonymous;
+   notAdmin;
+   notTracked;
+   topUpInFlight;
  };
 type Account =
  record {

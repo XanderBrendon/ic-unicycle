@@ -378,6 +378,13 @@ module {
 
   public type AdminError = { #anonymous; #notAdmin };
 
+  public type AdminRemoveCanisterError = {
+    #anonymous;
+    #notAdmin;
+    #notTracked;
+    #topUpInFlight;
+  };
+
   public type AdminSettings = {
     cycleCheckIntervalSeconds : Nat;
     maxReadingsPerCanister : Nat;
