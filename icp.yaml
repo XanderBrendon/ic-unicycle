@@ -171,23 +171,26 @@ canisters:
     init_args: '(variant { Init = record { token_symbol = "TEST"; token_name = "Test Token"; minting_account = record { owner = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" }; transfer_fee = 10_000 : nat; decimals = opt (8 : nat8); metadata = vec {}; initial_balances = vec {}; feature_flags = opt record { icrc2 = true }; archive_options = record { num_blocks_to_archive = 1_000 : nat64; trigger_threshold = 2_000 : nat64; controller_id = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" } } })'
 
 environments:
-  # Default target for a bare `icp deploy` (no -e). Lists only the project
-  # canisters so routine deploys never touch the ICRC ledger fixture — the
-  # ledger's Init-only arg traps on upgrade, and it rarely changes. Deploy /
-  # reinstall it on demand with the `ledger` environment below.
-  # SNS canisters are listed ledger → index → root → governance so governance is
-  # installed last (its startup tasks expect the SNS ledger to be live).
+  # Default target for a bare `icp deploy` (no -e). Lists only the core project
+  # canisters so routine deploys never touch the on-demand fixtures (the SNS
+  # suite + the test ICRC ledger), whose ledger/index take an Init-only arg that
+  # traps on plain upgrade. Deploy / reinstall those on demand with the `ledger`
+  # environment below.
   - name: local
     network: local
-    canisters: [unicycle_backend, unicycle_frontend, balance_checker, icpswap_pool, cmc, sns_wasm, sns_ledger, sns_index, sns_root, sns_governance]
+    canisters: [unicycle_backend, unicycle_frontend, balance_checker, icpswap_pool, cmc]
 
-  # Local-only fixture deploy: `icp deploy -e ledger` (first time) or
-  # `icp deploy -e ledger --mode reinstall` (subsequent — clears token state,
-  # reseed via devscripts/seed-test-token.sh). Kept out of the default `local`
-  # env so it isn't redeployed on every `icp deploy`.
+  # Local-only on-demand fixtures: the test ICRC ledger plus the full SNS suite.
+  # First time: `icp deploy -e ledger`; subsequent: `icp deploy -e ledger --mode
+  # reinstall` (clears token + SNS state — reseed via devscripts/seed-test-token.sh,
+  # the seed-sns-*.sh helpers, and setup-sns-local.sh). Kept out of the default
+  # `local` env so a bare `icp deploy` never redeploys them — important because the
+  # test ICRC ledger and the SNS ledger/index take an Init-only arg that traps on
+  # plain upgrade. SNS canisters are ordered ledger → index → root → governance so
+  # governance installs last (its startup tasks expect the SNS ledger to be live).
   - name: ledger
     network: local
-    canisters: [test_icrc1_ledger]
+    canisters: [test_icrc1_ledger, sns_wasm, sns_ledger, sns_index, sns_root, sns_governance]
 
   - name: production
     network: ic
