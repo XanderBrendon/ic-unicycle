@@ -34,9 +34,7 @@ import DrainDetection "lib/DrainDetection";
 import Report "lib/Report";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
-import Migration "migration";
 
-(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
