@@ -6,11 +6,14 @@
 #
 # The .candid files use @@name@@ placeholders for local canister ids (e.g.
 # @@sns_governance@@, @@sns_root@@, @@sns_ledger@@, @@sns_index@@,
-# @@unicycle_backend@@). This script substitutes the LIVE ids from
-# .icp/cache/mappings/<env>.ids.json before encoding, so the wiring is always
-# correct even if a fresh `icp deploy` allocates different ids. (Sneed's swap id
-# hshru-… stays literal — it is an inert placeholder, not a local canister, and
-# the dev controller principal is a fixed identity, not a canister.)
+# @@unicycle_backend@@). This script substitutes the LIVE ids before encoding,
+# so the wiring is always correct even if a fresh `icp deploy` allocates
+# different ids. The SNS canisters live in the `ledger` env while
+# @@unicycle_backend@@ lives in `local`, so it merges both mapping files (the
+# SNS env wins, so a fresh ledger deploy overrides any stale SNS ids still left
+# in local.ids.json). (Sneed's swap id hshru-… stays literal — it is an inert
+# placeholder, not a local canister, and the dev controller principal is a fixed
+# identity, not a canister.)
 #
 # WHY type-aware binary instead of inline Candid text: icp-cli has no Candid
 # interface for a pre-built canister, so it would encode an inline candid string
@@ -18,19 +21,25 @@
 # `neurons : vec record { text; Neuron }` ("expect a key-value pair" trap). didc
 # encodes against the real .did type, guaranteeing a clean decode on the canister.
 #
-# Re-run this after `icp deploy` (which allocates ids) and before reinstalling the
-# SNS canisters. Requires `didc`, `xxd`, and `python3`.
+# Re-run this after `icp deploy -e ledger` (which allocates the SNS ids) and
+# before reinstalling the SNS canisters. Requires `didc`, `xxd`, and `python3`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ENV="${1:-local}"
-IDS=".icp/cache/mappings/${ENV}.ids.json"
-[ -f "$IDS" ] || { echo "error: $IDS not found — run 'icp deploy -e $ENV' first" >&2; exit 1; }
+ENV="${1:-ledger}"                                   # env holding the SNS suite
+SNS_IDS=".icp/cache/mappings/${ENV}.ids.json"
+CORE_IDS=".icp/cache/mappings/local.ids.json"        # holds @@unicycle_backend@@
+[ -f "$SNS_IDS" ] || { echo "error: $SNS_IDS not found — run 'icp deploy -e $ENV' first" >&2; exit 1; }
 
-# Build a sed program that replaces every @@name@@ with the live id for that name.
-SEDPROG=$(python3 - "$IDS" <<'PY'
-import json, sys
-ids = json.load(open(sys.argv[1]))
+# Build a sed program that replaces every @@name@@ with the live id for that
+# name, merging the core (local) and SNS env mappings — the SNS env is read last
+# so its ids override any stale SNS entries lingering in local.ids.json.
+SEDPROG=$(python3 - "$CORE_IDS" "$SNS_IDS" <<'PY'
+import json, os, sys
+ids = {}
+for path in sys.argv[1:]:
+    if os.path.exists(path):
+        ids.update(json.load(open(path)))
 print("".join(f"s|@@{name}@@|{cid}|g;" for name, cid in ids.items()))
 PY
 )
@@ -40,7 +49,7 @@ encode() {
   filled=$(sed "$SEDPROG" "$src")
   # Fail loudly if any placeholder survived (missing id in the mappings file).
   if printf '%s' "$filled" | grep -q '@@'; then
-    echo "error: unresolved @@placeholder@@ in $src — check $IDS" >&2; exit 1
+    echo "error: unresolved @@placeholder@@ in $src — check $CORE_IDS and $SNS_IDS" >&2; exit 1
   fi
   printf '%s' "$filled" | didc encode -d "$did" -t "$type" -f hex | xxd -r -p > "$out"
   echo "  $(printf '%-44s' "$out") $(wc -c < "$out") bytes"
