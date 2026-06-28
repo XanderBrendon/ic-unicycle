@@ -2355,101 +2355,128 @@ persistent actor class Unicycle(
   };
 
   func runCycleSweep() : async () {
-    // Collect the unique set of tracked canister ids across all owners — one
-    // reading per canister per firing, regardless of how many users track it.
-    let seen = Map.empty<Principal, ()>();
-    let ids = List.empty<Principal>();
-    for ((_owner, userMap) in tracked.entries()) {
+    // Per unique tracked canister, find the SNS root that owns it (if any).
+    // SNS-controlled entries store the root as `owner`: route their reads
+    // through the root summary, everyone else through the blackhole batch. One
+    // reading per canister per firing, regardless of how many owners track it.
+    let roots = Set.empty<Principal>();
+    for (r in snsRootByGovernance.values()) { roots.add(r) };
+
+    let seen = Set.empty<Principal>();
+    let blackholeIds = List.empty<Principal>();
+    let snsCanisterRoot = Map.empty<Principal, Principal>(); // canisterId → owning root
+    for ((owner, userMap) in tracked.entries()) {
+      let ownerIsRoot = roots.contains(owner);
       for ((canisterId, _cfg) in userMap.entries()) {
-        if (seen.get(canisterId) == null) {
-          seen.add(canisterId, ());
-          ids.add(canisterId);
+        if (not seen.contains(canisterId)) {
+          seen.add(canisterId);
+          if (ownerIsRoot) { snsCanisterRoot.add(canisterId, owner) } else { blackholeIds.add(canisterId) };
         };
       };
     };
-    if (ids.size() == 0) return;
+    if (seen.size() == 0) return;
 
-    let idsArr = ids.toArray();
-    let outcome = try {
-      #ok(await blackhole().canisterStatuses(idsArr, settings.batchSize));
-    } catch (e) {
-      #err("blackhole unreachable: " # e.message());
-    };
+    // One reading per canister; the top-up snapshot below reads from this.
+    let readingByCanister = Map.empty<Principal, Nat>();
 
-    switch (outcome) {
-      case (#err msg) {
-        log(#error, #timer, "cycle check batch failed: " # msg, null);
-        for (canisterId in idsArr.vals()) {
-          recordReading(canisterId, #err("batch failed: " # msg));
-        };
+    // --- Blackhole bucket: the single batch call for non-SNS canisters. ---
+    let blackholeArr = blackholeIds.toArray();
+    if (blackholeArr.size() > 0) {
+      let outcome = try {
+        #ok(await blackhole().canisterStatuses(blackholeArr, settings.batchSize));
+      } catch (e) {
+        #err("blackhole unreachable: " # e.message());
       };
-      case (#ok(#err msg)) {
-        log(#error, #timer, "cycle check batch failed: " # msg, null);
-        for (canisterId in idsArr.vals()) {
-          recordReading(canisterId, #err("batch failed: " # msg));
+      switch (outcome) {
+        case (#err msg) {
+          log(#error, #timer, "cycle check batch failed: " # msg, null);
+          for (canisterId in blackholeArr.vals()) { recordReading(canisterId, #err("batch failed: " # msg)) };
         };
-      };
-      case (#ok(#ok results)) {
-        let n = if (results.size() < idsArr.size()) results.size() else idsArr.size();
-        // Track successful readings by canister id so the top-up sweep below
-        // can decide per-(owner, canister) pair without re-fetching.
-        let readingByCanister = Map.empty<Principal, Nat>();
-        var i = 0;
-        while (i < n) {
-          let canisterId = idsArr[i];
-          switch (results[i]) {
-            case (#ok status) {
-              recordReading(canisterId, #ok(status.cycles));
-              readingByCanister.add(canisterId, status.cycles);
-            };
-            case (#err msg) { recordReading(canisterId, #err(msg)) };
-          };
-          i += 1;
+        case (#ok(#err msg)) {
+          log(#error, #timer, "cycle check batch failed: " # msg, null);
+          for (canisterId in blackholeArr.vals()) { recordReading(canisterId, #err("batch failed: " # msg)) };
         };
-        // Guard against the blackhole returning fewer results than ids. The
-        // contract says input/output align, but record an explicit error for
-        // any tail id so a partial response doesn't silently disappear.
-        while (i < idsArr.size()) {
-          let canisterId = idsArr[i];
-          recordReading(canisterId, #err("batch length mismatch: no reading returned"));
-          i += 1;
-        };
-        // Snapshot below-threshold (owner, canisterId, cycleTopUpAmount)
-        // candidates BEFORE any awaits. Iterating `tracked` (a mutable map)
-        // across an `await` is unsafe — `upsertCanister` or a parallel
-        // `recordCyclesNow` could mutate it mid-sweep. The snapshot reads
-        // the live config so any edits up to this point win; subsequent
-        // edits during the saga don't affect what runTopUps sees.
-        let candidates = List.empty<(Principal, Principal, Nat)>();
-        // Suspended canisters whose deadline has expired during this sweep.
-        // Mutating `tracked` mid-iteration is unsafe, so collect the pairs
-        // here and untrack after both loops finish but before the saga starts.
-        let toRemove = List.empty<(Principal, Principal)>();
-        for ((owner, userMap) in tracked.entries()) {
-          for ((canisterId, cfg) in userMap.entries()) {
-            switch (readingByCanister.get(canisterId)) {
-              case (?cycles) {
-                switch (Tracking.classifyForTopUp(cfg, cycles, Int.abs(Time.now()))) {
-                  case (#remove) { toRemove.add((owner, canisterId)) };
-                  case (#topUp amt) { candidates.add((owner, canisterId, amt)) };
-                  case (#skip) {};
-                };
+        case (#ok(#ok results)) {
+          let n = if (results.size() < blackholeArr.size()) results.size() else blackholeArr.size();
+          var i = 0;
+          while (i < n) {
+            let canisterId = blackholeArr[i];
+            switch (results[i]) {
+              case (#ok status) {
+                recordReading(canisterId, #ok(status.cycles));
+                readingByCanister.add(canisterId, status.cycles);
               };
-              case null {};
+              case (#err msg) { recordReading(canisterId, #err(msg)) };
+            };
+            i += 1;
+          };
+          // Guard against the blackhole returning fewer results than ids — record
+          // an explicit error for any tail id so a partial response doesn't
+          // silently disappear.
+          while (i < blackholeArr.size()) {
+            let canisterId = blackholeArr[i];
+            recordReading(canisterId, #err("batch length mismatch: no reading returned"));
+            i += 1;
+          };
+        };
+      };
+    };
+
+    // --- SNS bucket: one get_sns_canisters_summary per distinct root. ---
+    let canistersByRoot = Map.empty<Principal, List.List<Principal>>();
+    for ((canisterId, root) in snsCanisterRoot.entries()) {
+      switch (canistersByRoot.get(root)) {
+        case (?l) { l.add(canisterId) };
+        case null { let l = List.empty<Principal>(); l.add(canisterId); canistersByRoot.add(root, l) };
+      };
+    };
+    for ((root, canisterList) in canistersByRoot.entries()) {
+      switch (await snsRootCycles(root)) {
+        case (#ok pairs) {
+          for (canisterId in canisterList.values()) {
+            switch (findCycles(pairs, canisterId)) {
+              case (?cycles) { recordReading(canisterId, #ok(cycles)); readingByCanister.add(canisterId, cycles) };
+              case null { recordReading(canisterId, #err("not found in SNS canisters summary")) };
             };
           };
         };
-        for ((owner, canisterId) in toRemove.values()) {
-          removeTrackedEntry(owner, canisterId);
+        case (#err msg) {
+          log(#error, #timer, "sns root summary failed for " # root.toText() # ": " # msg, null);
+          for (canisterId in canisterList.values()) { recordReading(canisterId, #err("sns root summary failed: " # msg)) };
         };
-        await runTopUps(candidates.toArray());
-        await runHarvestGated();
-        await runLpDrain();
-        await runSnsDepositChecks();
-        await runSnsReportChecks();
-        await runSnsDrainAlertChecks();
       };
     };
+
+    // Snapshot below-threshold (owner, canisterId, cycleTopUpAmount) candidates
+    // and expired-suspension removals from `tracked` AFTER all the read awaits.
+    // Iterating the mutable `tracked` map is only safe between awaits, so build
+    // the snapshot here (no await inside the loop) and run the saga after. Reads
+    // the live config so any edits up to this point win.
+    let candidates = List.empty<(Principal, Principal, Nat)>();
+    let toRemove = List.empty<(Principal, Principal)>();
+    for ((owner, userMap) in tracked.entries()) {
+      for ((canisterId, cfg) in userMap.entries()) {
+        switch (readingByCanister.get(canisterId)) {
+          case (?cycles) {
+            switch (Tracking.classifyForTopUp(cfg, cycles, Int.abs(Time.now()))) {
+              case (#remove) { toRemove.add((owner, canisterId)) };
+              case (#topUp amt) { candidates.add((owner, canisterId, amt)) };
+              case (#skip) {};
+            };
+          };
+          case null {};
+        };
+      };
+    };
+    for ((owner, canisterId) in toRemove.values()) {
+      removeTrackedEntry(owner, canisterId);
+    };
+    await runTopUps(candidates.toArray());
+    await runHarvestGated();
+    await runLpDrain();
+    await runSnsDepositChecks();
+    await runSnsReportChecks();
+    await runSnsDrainAlertChecks();
   };
 
   public shared query ({ caller }) func whoami() : async Principal {
