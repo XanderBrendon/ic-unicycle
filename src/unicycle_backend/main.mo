@@ -2250,20 +2250,35 @@ persistent actor class Unicycle(
   };
 
   func checkCanister(owner : Principal, canisterId : Principal) : async () {
-    let cyclesOpt = try {
-      switch (await blackhole().canisterStatus(canisterId)) {
-        case (#ok status) {
-          recordReading(canisterId, #ok(status.cycles));
-          ?status.cycles;
+    let cyclesOpt = if (isKnownSnsRoot(owner)) {
+      switch (await snsRootCycles(owner)) {
+        case (#ok pairs) {
+          switch (findCycles(pairs, canisterId)) {
+            case (?cycles) { recordReading(canisterId, #ok(cycles)); ?cycles };
+            case null {
+              recordReading(canisterId, #err("not found in SNS canisters summary"));
+              null;
+            };
+          };
         };
-        case (#err msg) {
-          recordReading(canisterId, #err(msg));
-          null;
-        };
+        case (#err msg) { recordReading(canisterId, #err(msg)); null };
       };
-    } catch (e) {
-      recordReading(canisterId, #err("blackhole unreachable: " # e.message()));
-      null;
+    } else {
+      try {
+        switch (await blackhole().canisterStatus(canisterId)) {
+          case (#ok status) {
+            recordReading(canisterId, #ok(status.cycles));
+            ?status.cycles;
+          };
+          case (#err msg) {
+            recordReading(canisterId, #err(msg));
+            null;
+          };
+        };
+      } catch (e) {
+        recordReading(canisterId, #err("blackhole unreachable: " # e.message()));
+        null;
+      };
     };
     switch (cyclesOpt) {
       case null {};
