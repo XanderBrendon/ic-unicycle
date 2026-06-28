@@ -79,6 +79,15 @@ function formatUpsertCanisterError(
       return {
         message: 'Too many requests in a short window — wait a few seconds and try again.',
       };
+    case 'snsRootNotController': {
+      const { snsRootCanisterId, reason } = err.snsRootNotController;
+      return {
+        message:
+          "Unicycle can't read this canister's cycle balance: it isn't controlled by the SNS root " +
+          "(it doesn't appear in the SNS's canister summary). Register it with the SNS before tracking it.",
+        detail: `SNS root ${snsRootCanisterId.toText()} said: ${reason}`,
+      };
+    }
     default: {
       const _exhaustive: never = err;
       return { message: 'Unknown error.', detail: JSON.stringify(_exhaustive) };

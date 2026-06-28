@@ -183,6 +183,7 @@ module {
     #zeroMinCycleBalance;
     #zeroCycleTopUpAmount;
     #blackholeNotController : { blackholeCanisterId : Principal; reason : Text };
+    #snsRootNotController : { snsRootCanisterId : Principal; reason : Text };
     #ownerLimitReached : { maxOwners : Nat };
     #canisterLimitReached : { maxCanistersPerOwner : Nat };
     #rateLimited;

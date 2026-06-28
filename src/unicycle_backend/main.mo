@@ -130,6 +130,32 @@ persistent actor class Unicycle(
     actor (blackholeId.toText());
   };
 
+  // ---------------------------------------------------------------------------
+  // SNS root canister reference. An SNS root is a controller of every canister
+  // in its DAO and exposes their statuses (incl. cycles) via the open
+  // `get_sns_canisters_summary` update — so SNS-controlled canisters need no
+  // blackhole controllership. Structural typing pins only `canister_id` and the
+  // `cycles` field of each summary's status (Candid width-subtyping drops the
+  // rest). Called with `update_canister_list = null`: the `?true` refresh path
+  // is governance-only.
+  // ---------------------------------------------------------------------------
+
+  type SnsCanisterSummary = { canister_id : ?Principal; status : ?{ cycles : Nat } };
+
+  func snsRoot(root : Principal) : actor {
+    get_sns_canisters_summary : ({ update_canister_list : ?Bool }) -> async {
+      root : ?SnsCanisterSummary;
+      swap : ?SnsCanisterSummary;
+      ledger : ?SnsCanisterSummary;
+      index : ?SnsCanisterSummary;
+      governance : ?SnsCanisterSummary;
+      dapps : [SnsCanisterSummary];
+      archives : [SnsCanisterSummary];
+    };
+  } {
+    actor (root.toText());
+  };
+
   // Cycles ledger reference — narrow structural type pinned to just `withdraw`.
   // The vendored binding's `Self` is a factory function (the upstream service
   // takes init args), so we declare the live actor type inline.
@@ -2663,24 +2689,37 @@ persistent actor class Unicycle(
     // backend-paid outbound rate.
     if (enforceGlobalLimit and not consumeGlobalToken()) return #err(#rateLimited);
 
-    // Blackhole controllership precondition. A returned #err means the
-    // blackhole is not a controller of the target (its own mgmt-canister call
-    // was rejected); a try/catch covers the blackhole itself being
-    // unreachable. Status payload is discarded — the recurring timer or
-    // recordCyclesNow seed the first reading.
-    let probe = try {
-      #ok(await blackhole().canisterStatus(canisterId));
-    } catch (e) {
-      #err("blackhole unreachable: " # e.message());
-    };
-    switch (probe) {
-      case (#err reason) {
-        return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
+    // Controllership precondition. SNS-controlled entries (caller is a known SNS
+    // root) are confirmed via the root's canister summary — no blackhole
+    // controllership needed; everyone else via the blackhole probe. A returned
+    // #err means the relevant controller is not in place; the status payload is
+    // discarded (the recurring timer or recordCyclesNow seed the first reading).
+    if (isKnownSnsRoot(caller)) {
+      switch (await snsRootCycles(caller)) {
+        case (#err reason) {
+          return #err(#snsRootNotController { snsRootCanisterId = caller; reason });
+        };
+        case (#ok pairs) {
+          if (findCycles(pairs, canisterId) == null) {
+            return #err(#snsRootNotController { snsRootCanisterId = caller; reason = "canister not found in SNS canisters summary" });
+          };
+        };
       };
-      case (#ok(#err msg)) {
-        return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg });
+    } else {
+      let probe = try {
+        #ok(await blackhole().canisterStatus(canisterId));
+      } catch (e) {
+        #err("blackhole unreachable: " # e.message());
       };
-      case (#ok(#ok _status)) { /* controllership confirmed */ };
+      switch (probe) {
+        case (#err reason) {
+          return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
+        };
+        case (#ok(#err msg)) {
+          return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg });
+        };
+        case (#ok(#ok _status)) { /* controllership confirmed */ };
+      };
     };
 
     let userMap = switch (tracked.get(caller)) {
@@ -2922,6 +2961,48 @@ persistent actor class Unicycle(
       case (?root) { root };
       case null { Runtime.trap(method # ": caller is not a recognized SNS") };
     };
+  };
+
+  // True iff `p` is a known SNS root (a value in the governance→root map). For
+  // SNS registrations the tracking `owner` IS the root, so this routes reads
+  // through the root summary instead of the blackhole.
+  func isKnownSnsRoot(p : Principal) : Bool {
+    for (root in snsRootByGovernance.values()) { if (root == p) return true };
+    false;
+  };
+
+  // Read cycle balances for an SNS's canisters from its root. One update call
+  // (root fans out canister_status to its DAO's canisters). Returns
+  // (canisterId, cycles) for every summary entry carrying both a canister_id and
+  // a status; #err on trap / unreachable root. The result is an array (not a
+  // Map) because an `async` return type must be shared.
+  func snsRootCycles(root : Principal) : async Result.Result<[(Principal, Nat)], Text> {
+    let summary = try {
+      await snsRoot(root).get_sns_canisters_summary({ update_canister_list = null });
+    } catch (e) {
+      return #err("sns root unreachable: " # e.message());
+    };
+    let acc = List.empty<(Principal, Nat)>();
+    for (opt in [summary.root, summary.swap, summary.ledger, summary.index, summary.governance].vals()) {
+      switch (opt) { case (?s) { addSummaryCycles(acc, s) }; case null {} };
+    };
+    for (s in summary.dapps.vals()) { addSummaryCycles(acc, s) };
+    for (s in summary.archives.vals()) { addSummaryCycles(acc, s) };
+    #ok(acc.toArray());
+  };
+
+  func addSummaryCycles(into : List.List<(Principal, Nat)>, s : SnsCanisterSummary) {
+    switch (s.canister_id, s.status) {
+      case (?id, ?st) { into.add((id, st.cycles)) };
+      case _ {};
+    };
+  };
+
+  // Look up one canister's cycles in an snsRootCycles result (linear scan; SNS
+  // summaries are small).
+  func findCycles(pairs : [(Principal, Nat)], id : Principal) : ?Nat {
+    for ((cid, cycles) in pairs.vals()) { if (cid == id) return ?cycles };
+    null;
   };
 
   public shared ({ caller }) func snsDeposit(arg : SnsDepositArg) : async () {
