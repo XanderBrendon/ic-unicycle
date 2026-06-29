@@ -11,10 +11,17 @@
 #      all need each other's ids baked into their init payloads.
 #   2. Bake the live ids into the init payloads (encode-sns-init.sh).
 #   3. (Re)install the SNS canisters with the correct wiring, ledger → index →
-#      root → governance so governance starts with its ledger live.
-#   4. Seed the registry + ICP treasury + custom functions (seed-sns-real.sh).
+#      root → governance so governance starts with its ledger live. The dominant
+#      neuron + unicycle backend hotkey are baked into the governance init, so
+#      they come up already in place.
+#   4. Seed the mainnet-equivalent preconditions only: registry + ICP treasury
+#      (seed-sns-real.sh). It does NOT register unicycle's custom functions — that
+#      is unicycle's own onboarding path (register the `snsSetup` bootstrap, then
+#      execute it), so the starting state mirrors a real, not-yet-onboarded SNS.
+#      To pre-register the 12 functions, run devscripts/register-sns-functions.sh.
 #
-# Idempotent: safe to re-run to reset the SNS to a clean seeded state.
+# Idempotent: safe to re-run to reset the SNS to a clean, minimal (not-yet-
+# onboarded) baseline.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ENV=ledger   # the SNS suite lives in the `ledger` env (see icp.yaml)
@@ -31,5 +38,5 @@ echo "==> 3/4 (re)install SNS canisters (ledger → index → root → governanc
 icp deploy sns_ledger sns_index sns_root sns_governance -e "$ENV" --mode reinstall -y >/dev/null
 echo "    installed (module hashes match Sneed mainnet)"
 
-echo "==> 4/4 seed registry + treasury + functions"
+echo "==> 4/4 seed preconditions (registry + treasury; no custom functions)"
 ./devscripts/seed-sns-real.sh

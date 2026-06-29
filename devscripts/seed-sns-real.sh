@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 #
 # Seed the local REAL SNS (Sneed-equivalent) for unicycle integration testing.
-# Replaces the old stub seed (seed-sns-governance-stub.sh). Run after
-# `icp deploy -e ledger` (+ setup-sns-local.sh) has installed the real SNS
-# canisters (sns_ledger/sns_index/sns_root/sns_governance, all in the `ledger`
-# env).
+# Run after `icp deploy -e ledger` (+ setup-sns-local.sh) has installed the real
+# SNS canisters (sns_ledger/sns_index/sns_root/sns_governance, all in the
+# `ledger` env).
 #
-# Does, in order:
+# Seeds ONLY the mainnet-equivalent preconditions — the state a launched SNS
+# already has *before* it ever onboards unicycle:
 #   1. Registry  — map governance → root in the sns_wasm shim so the backend's
-#      `resolveSnsRoot(governance)` recognizes the caller as an SNS.
+#      `resolveSnsRoot(governance)` recognizes the caller as an SNS. This is the
+#      local stand-in for the live NNS SNS-Wasm registry (which lists every
+#      launched SNS automatically) — not part of unicycle onboarding.
 #   2. Treasury  — fund the SNS's ICP treasury (governance's default ICP account
 #      on the NNS ICP ledger) so US24 TransferSnsTreasuryFunds proposals can
 #      actually move ICP into unicycle's deposit subaccount.
-#   3. Setup     — `adminSnsSetup` (driven as --identity dev, a backend
-#      controller = admin) records the proposal neuron with the backend AND
-#      submits the AddGenericNervousSystemFunction proposals. The dominant
-#      neuron (baked into governance init with the backend hotkeyed) holds 100%
-#      voting power, so each proposal auto-adopts and executes, registering the
-#      twin on governance.
 #
-# The neuron id is 32 bytes of 0x01 — the same value baked into
-# vendor/sns_governance/governance_init.candid.
+# It deliberately does NOT register unicycle's custom functions or record the
+# proposal neuron: that is unicycle's own onboarding path (register the `snsSetup`
+# bootstrap, then execute it), which the local quickstart walks through exactly as
+# on mainnet — so the starting state stays as close to a real mainnet SNS as
+# possible. The dominant neuron + backend hotkey come baked into the governance
+# init payload (installed by setup-sns-local.sh), so they are already in place.
+#
+# To pre-register the 12 functions for flows that need them already present (e.g.
+# the manual test guide's later sections), run
+# devscripts/register-sns-functions.sh.
 #
 # Usage:
 #   devscripts/seed-sns-real.sh [treasury_icp=1000]
@@ -28,9 +32,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SNS_ENV=ledger   # env holding the SNS suite + the sns_wasm registry shim
-CORE_ENV=local   # env holding unicycle_backend
 SNS_IDS=.icp/cache/mappings/${SNS_ENV}.ids.json
-CORE_IDS=.icp/cache/mappings/${CORE_ENV}.ids.json
+CORE_IDS=.icp/cache/mappings/local.ids.json
 # Resolve a canister id from either env mapping (the SNS env is read last, so it
 # wins over any stale SNS ids lingering in local.ids.json).
 cid() {
@@ -47,21 +50,16 @@ PY
 
 GOV=$(cid sns_governance)
 ROOT=$(cid sns_root)
-BACKEND=$(cid unicycle_backend)
 TREASURY_ICP="${1:-1000}"
-NEURON_BLOB="blob \"$(printf '\\01%.0s' {1..32})\""
 
-echo "==> 1/3 registry: $GOV -> $ROOT"
+echo "==> 1/2 registry: $GOV -> $ROOT"
 icp canister call sns_wasm addSns "(principal \"$GOV\", principal \"$ROOT\")" -e "$SNS_ENV" >/dev/null
 
-echo "==> 2/3 fund SNS ICP treasury (governance $GOV) with $TREASURY_ICP ICP"
+echo "==> 2/2 fund SNS ICP treasury (governance $GOV) with $TREASURY_ICP ICP"
 icp token transfer "$TREASURY_ICP" "$GOV" >/dev/null
 echo "    treasury balance: $(icp token balance --of-principal "$GOV")"
 
-echo "==> 3/3 adminSnsSetup (registers proposal neuron + 12 custom functions)"
-icp canister call unicycle_backend adminSnsSetup \
-  "(principal \"$GOV\", $NEURON_BLOB, 1000:nat64)" -e "$CORE_ENV"
-
 echo
-echo "Seed complete. Verify registered functions with:"
-echo "  icp canister call sns_governance list_nervous_system_functions '()' -e $SNS_ENV"
+echo "Seed complete (preconditions only — no custom functions registered)."
+echo "Onboard unicycle via the quickstart (register fn 2000 -> execute it), or"
+echo "pre-register the 12 functions with: devscripts/register-sns-functions.sh"
