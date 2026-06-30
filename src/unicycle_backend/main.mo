@@ -2591,7 +2591,21 @@ persistent actor class Unicycle(
     token : Token,
     amount : Nat,
   ) : async Result.Result<Nat, WithdrawError> {
-    if (caller.isAnonymous()) {
+    await doWithdrawTransfer(caller, { owner = caller; subaccount = null }, caller, token, amount);
+  };
+
+  // Shared withdraw mechanics: move `amount` of `token` out of the
+  // `ofPrincipal(fromKey)` deposit subaccount to `to`, booking the debit under
+  // `recordKey`. Callers needing a destination other than the source owner
+  // (SNS withdraws → treasury / configured account) pass them separately.
+  func doWithdrawTransfer(
+    fromKey : Principal,
+    to : ICRC1.Account,
+    recordKey : Principal,
+    token : Token,
+    amount : Nat,
+  ) : async Result.Result<Nat, WithdrawError> {
+    if (fromKey.isAnonymous()) {
       return #err(#anonymous);
     };
     if (amount == 0) {
@@ -2601,8 +2615,8 @@ persistent actor class Unicycle(
     let ledger : ICRC1.Self = actor (Tokens.ledgerCanisterId(token).toText());
 
     let result = await ledger.icrc1_transfer({
-      from_subaccount = ?Subaccount.ofPrincipal(caller);
-      to = { owner = caller; subaccount = null };
+      from_subaccount = ?Subaccount.ofPrincipal(fromKey);
+      to;
       amount;
       fee = null;
       memo = null;
@@ -2617,7 +2631,7 @@ persistent actor class Unicycle(
           case (#ICP) { icpLedgerFee };
           case (#TCYCLES) { tcyclesLedgerFee };
         };
-        recordBalanceEvent(caller, token, amount + ledgerFee, #debit, #withdraw);
+        recordBalanceEvent(recordKey, token, amount + ledgerFee, #debit, #withdraw);
         #ok blockIndex;
       };
       case (#Err err) { #err(#transfer err) };
@@ -3055,7 +3069,26 @@ persistent actor class Unicycle(
 
   public shared ({ caller }) func snsWithdraw(arg : SnsWithdrawArg) : async () {
     let root = requireSnsRoot(await resolveSnsRoot(caller), "snsWithdraw");
-    switch (await withdrawFor(root, arg.token, arg.amount)) {
+    let governance = caller;
+    let dest = SnsWithdraw.resolveDestination(arg.token, snsWithdrawDestination.get(root), governance);
+
+    // Non-ICP only: ICP is locked to the treasury (governance default account),
+    // which is never a minting account. For other tokens, refuse to burn.
+    switch (arg.token) {
+      case (#ICP) {};
+      case (_) {
+        let ledger : ICRC1.Self = actor (Tokens.ledgerCanisterId(arg.token).toText());
+        let minting = await ledger.icrc1_minting_account();
+        if (SnsWithdraw.isMintingAccount(dest, minting)) {
+          Runtime.trap(
+            "snsWithdraw: refusing to send " # Tokens.toText(arg.token)
+            # " to the ledger's minting (burn) account; set a destination via 'Unicycle: Set Withdraw Destination'"
+          );
+        };
+      };
+    };
+
+    switch (await doWithdrawTransfer(root, dest, root, arg.token, arg.amount)) {
       case (#ok _) {};
       case (#err e) { Runtime.trap("snsWithdraw: " # debug_show e) };
     };
@@ -3097,7 +3130,11 @@ persistent actor class Unicycle(
     if (arg.amount == 0) return #Err("amount must be > 0");
     #Ok(
       "Withdraw " # arg.amount.toText() # " " # Tokens.toText(arg.token)
-      # " base units from the Unicycle deposit subaccount to the caller's wallet."
+      # " base units from the SNS's Unicycle deposit subaccount to "
+      # (switch (arg.token) {
+          case (#ICP) { "the SNS treasury." };
+          case (_) { "the SNS's configured withdraw destination (default: the SNS governance account)." };
+        })
     );
   };
 
