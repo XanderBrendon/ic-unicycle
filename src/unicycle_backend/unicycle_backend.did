@@ -103,8 +103,6 @@ type Unicycle =
    setCanisterSuspended: (canisterId: principal, suspend: bool) -> (Result_4);
    setIcpSwapPool: (p: principal) -> (Result_3);
    setPrimaryAdmin: (p: principal) -> (Result_3);
-   snsDeposit: (arg: SnsDepositArg) -> ();
-   snsDepositValidate: (arg: SnsDepositArg) -> (SnsValidateResult);
    snsGrantAdmin: (arg: SnsGrantAdminArg) -> ();
    snsGrantAdminValidate: (arg: SnsGrantAdminArg) -> (SnsValidateResult);
    snsRecordCyclesNow: (arg: SnsRecordCyclesArg) -> ();
@@ -320,11 +318,6 @@ type SnsDepositCheckOutcome =
    governance: principal;
    minBalanceE8s: nat;
    root: principal;
- };
-type SnsDepositArg =
- record {
-   amount: nat;
-   token: Token;
  };
 type SnsDepositAction =
  variant {

@@ -62,7 +62,6 @@ persistent actor class Unicycle(
   public type TopUp = Types.TopUp;
   public type CanisterHistory = Types.CanisterHistory;
   public type SnsValidateResult = Types.SnsValidateResult;
-  public type SnsDepositArg = Types.SnsDepositArg;
   public type SnsWithdrawArg = Types.SnsWithdrawArg;
   public type SnsUpsertCanisterArg = Types.SnsUpsertCanisterArg;
   public type SnsSetSuspendedArg = Types.SnsSetSuspendedArg;
@@ -3047,14 +3046,6 @@ persistent actor class Unicycle(
     null;
   };
 
-  public shared ({ caller }) func snsDeposit(arg : SnsDepositArg) : async () {
-    let root = requireSnsRoot(await resolveSnsRoot(caller), "snsDeposit");
-    switch (await depositFor(root, arg.token, arg.amount)) {
-      case (#ok _) {};
-      case (#err e) { Runtime.trap("snsDeposit: " # debug_show e) };
-    };
-  };
-
   public shared ({ caller }) func snsWithdraw(arg : SnsWithdrawArg) : async () {
     let root = requireSnsRoot(await resolveSnsRoot(caller), "snsWithdraw");
     switch (await withdrawFor(root, arg.token, arg.amount)) {
@@ -3093,14 +3084,6 @@ persistent actor class Unicycle(
       case (#ok _) {};
       case (#err e) { Runtime.trap("snsRecordCyclesNow: " # debug_show e) };
     };
-  };
-
-  public func snsDepositValidate(arg : SnsDepositArg) : async SnsValidateResult {
-    if (arg.amount == 0) return #Err("amount must be > 0");
-    #Ok(
-      "Deposit " # arg.amount.toText() # " " # Tokens.toText(arg.token)
-      # " base units into the Unicycle deposit subaccount."
-    );
   };
 
   public func snsWithdrawValidate(arg : SnsWithdrawArg) : async SnsValidateResult {
@@ -3537,7 +3520,6 @@ persistent actor class Unicycle(
   // this list — it is the manually-registered bootstrap and must not
   // re-register itself.
   let snsFunctionSpecs : [Types.SnsFunctionSpec] = [
-    { name = "Unicycle: Deposit"; description = "Deposit ICP/tcycles into the SNS's Unicycle subaccount."; target = "snsDeposit"; validator = "snsDepositValidate" },
     { name = "Unicycle: Withdraw"; description = "Withdraw ICP/tcycles from the SNS's Unicycle subaccount."; target = "snsWithdraw"; validator = "snsWithdrawValidate" },
     { name = "Unicycle: Track Canister"; description = "Register or update a tracked canister's top-up config."; target = "snsUpsertCanister"; validator = "snsUpsertCanisterValidate" },
     { name = "Unicycle: Set Canister Suspended"; description = "Suspend or resume automatic top-ups for a tracked canister."; target = "snsSetCanisterSuspended"; validator = "snsSetCanisterSuspendedValidate" },
@@ -4523,8 +4505,6 @@ persistent actor class Unicycle(
         #setCanisterSuspended : Any;
         #setIcpSwapPool : Any;
         #setPrimaryAdmin : Any;
-        #snsDeposit : Any;
-        #snsDepositValidate : Any;
         #snsGrantAdmin : Any;
         #snsGrantAdminValidate : Any;
         #snsRecordCyclesNow : Any;
@@ -4574,7 +4554,7 @@ persistent actor class Unicycle(
       // SNS governance-only execute twins: legitimate callers are governance
       // canisters (inter-canister → never reaches inspect), so reject all ingress.
       case (
-        #snsDeposit _ or #snsWithdraw _ or #snsUpsertCanister _
+        #snsWithdraw _ or #snsUpsertCanister _
         or #snsSetCanisterSuspended _ or #snsRemoveCanister _ or #snsRecordCyclesNow _
         or #snsSetProposalNeuron _ or #snsGrantAdmin _ or #snsRevokeAdmin _
         or #snsSetDepositConfig _ or #snsSetReportConfig _ or #snsSetDrainAlertConfig _

@@ -272,7 +272,6 @@ module {
   // `Result.Result` here — its lowercase `ok`/`err` would fail to decode.
   public type SnsValidateResult = { #Ok : Text; #Err : Text };
 
-  public type SnsDepositArg = { token : Token; amount : Nat };
   public type SnsWithdrawArg = { token : Token; amount : Nat };
   public type SnsUpsertCanisterArg = {
     canisterId : Principal;
