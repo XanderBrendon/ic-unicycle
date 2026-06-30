@@ -273,6 +273,9 @@ module {
   public type SnsValidateResult = { #Ok : Text; #Err : Text };
 
   public type SnsWithdrawArg = { token : Token; amount : Nat };
+  public type SnsWithdrawDestinationAccount = { owner : Principal; subaccount : ?Blob };
+  public type SnsSetWithdrawDestinationArg = { destination : SnsWithdrawDestinationAccount };
+  public type SnsWithdrawDestinationInfo = { destination : SnsWithdrawDestinationAccount; explicit : Bool };
   public type SnsUpsertCanisterArg = {
     canisterId : Principal;
     config : CanisterConfig;

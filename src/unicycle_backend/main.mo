@@ -34,6 +34,7 @@ import DrainDetection "lib/DrainDetection";
 import Report "lib/Report";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
+import SnsWithdraw "lib/SnsWithdraw";
 
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
@@ -63,6 +64,8 @@ persistent actor class Unicycle(
   public type CanisterHistory = Types.CanisterHistory;
   public type SnsValidateResult = Types.SnsValidateResult;
   public type SnsWithdrawArg = Types.SnsWithdrawArg;
+  public type SnsSetWithdrawDestinationArg = Types.SnsSetWithdrawDestinationArg;
+  public type SnsWithdrawDestinationInfo = Types.SnsWithdrawDestinationInfo;
   public type SnsUpsertCanisterArg = Types.SnsUpsertCanisterArg;
   public type SnsSetSuspendedArg = Types.SnsSetSuspendedArg;
   public type SnsRemoveCanisterArg = Types.SnsRemoveCanisterArg;
@@ -373,6 +376,10 @@ persistent actor class Unicycle(
   // check honours `DEPOSIT_PROPOSAL_COOLDOWN_NS`. Persisted but cheap to lose —
   // the SNS re-sets config by proposal and the cooldown simply restarts.
   let snsDepositConfig : Map.Map<Principal, SnsSetDepositConfigArg> = Map.empty();
+
+  // Per-SNS destination for non-ICP (ICRC) token withdrawals, keyed to the SNS
+  // root. Absent → the governance default account is used (see SnsWithdraw).
+  let snsWithdrawDestination : Map.Map<Principal, Types.SnsWithdrawDestinationAccount> = Map.empty();
   let snsLastDepositProposal : Map.Map<Principal, Nat> = Map.empty();
 
   // Recurring cycle-usage report config + cadence guard (US25), both root-keyed.
@@ -3374,6 +3381,47 @@ persistent actor class Unicycle(
     };
   };
 
+  // SNS-only execute twin: set the destination for non-ICP (ICRC) token
+  // withdrawals, keyed to the SNS root. ICP withdrawals always go to the
+  // treasury and ignore this setting. The runtime burn guard in `snsWithdraw`
+  // still refuses a destination that turns out to be a ledger's minting account.
+  public shared ({ caller }) func snsSetWithdrawDestination(arg : SnsSetWithdrawDestinationArg) : async () {
+    let root = requireSnsRoot(await resolveSnsRoot(caller), "snsSetWithdrawDestination");
+    if (arg.destination.owner.isAnonymous()) {
+      Runtime.trap("snsSetWithdrawDestination: destination owner must not be anonymous");
+    };
+    snsWithdrawDestination.add(root, arg.destination);
+    log(#info, #sns, "snsSetWithdrawDestination for root " # root.toText() # ": " # debug_show arg.destination, ?caller);
+  };
+
+  public func snsSetWithdrawDestinationValidate(arg : SnsSetWithdrawDestinationArg) : async SnsValidateResult {
+    if (arg.destination.owner.isAnonymous()) return #Err("destination owner must not be anonymous");
+    #Ok(
+      "Set the destination for non-ICP (ICRC) token withdrawals from this SNS's Unicycle account to owner "
+      # arg.destination.owner.toText()
+      # (switch (arg.destination.subaccount) { case null { " (default subaccount)." }; case (?_) { " (custom subaccount)." } })
+      # " ICP withdrawals always go to the SNS treasury."
+    );
+  };
+
+  // Effective non-ICP withdraw destination for an SNS, keyed by governance →
+  // root. Returns the configured account (explicit = true) or the governance
+  // default account (explicit = false) so the default is visible even when
+  // unset. `null` only for an unrecognized governance principal. Update method
+  // (not `query`) so a cache miss triggers the registry refresh in
+  // `resolveSnsRoot`, mirroring `getSnsDepositConfig`.
+  public func getSnsWithdrawDestination(governance : Principal) : async ?SnsWithdrawDestinationInfo {
+    switch (await resolveSnsRoot(governance)) {
+      case null { null };
+      case (?root) {
+        switch (snsWithdrawDestination.get(root)) {
+          case (?acct) { ?{ destination = acct; explicit = true } };
+          case null { ?{ destination = { owner = governance; subaccount = null }; explicit = false } };
+        };
+      };
+    };
+  };
+
   // ---------------------------------------------------------------------------
   // Recurring cycle-usage report config (US25). An SNS configures a cadence (in
   // days); the recurring `performCycleCheck` then submits a `#Motion` proposal whose
@@ -3533,6 +3581,7 @@ persistent actor class Unicycle(
     // `baseFunctionId + i` ids stay stable.
     { name = "Unicycle: Grant Admin"; description = "Grant a principal admin access to manage this SNS's Unicycle fleet from the frontend."; target = "snsGrantAdmin"; validator = "snsGrantAdminValidate" },
     { name = "Unicycle: Revoke Admin"; description = "Revoke a principal's Unicycle admin access for this SNS."; target = "snsRevokeAdmin"; validator = "snsRevokeAdminValidate" },
+    { name = "Unicycle: Set Withdraw Destination"; description = "Set the destination account for non-ICP (ICRC) token withdrawals; ICP always returns to the SNS treasury."; target = "snsSetWithdrawDestination"; validator = "snsSetWithdrawDestinationValidate" },
   ];
 
   // Build the AddGenericNervousSystemFunction proposal for one Unicycle twin and
@@ -4496,6 +4545,7 @@ persistent actor class Unicycle(
         #getSnsProposalNeuron : Any;
         #getSnsReportConfig : Any;
         #getSnsWasmCanister : Any;
+        #getSnsWithdrawDestination : Any;
         #getTimerSchedule : Any;
         #getTrackedCanisters : Any;
         #recordCyclesNow : () -> Principal; // arg decoded for the rate pre-check below
@@ -4523,6 +4573,8 @@ persistent actor class Unicycle(
         #snsSetProposalNeuronValidate : Any;
         #snsSetReportConfig : Any;
         #snsSetReportConfigValidate : Any;
+        #snsSetWithdrawDestination : Any;
+        #snsSetWithdrawDestinationValidate : Any;
         #snsSetup : Any;
         #snsSetupValidate : Any;
         #snsUpsertCanister : Any;
@@ -4558,7 +4610,7 @@ persistent actor class Unicycle(
         or #snsSetCanisterSuspended _ or #snsRemoveCanister _ or #snsRecordCyclesNow _
         or #snsSetProposalNeuron _ or #snsGrantAdmin _ or #snsRevokeAdmin _
         or #snsSetDepositConfig _ or #snsSetReportConfig _ or #snsSetDrainAlertConfig _
-        or #snsSetup _
+        or #snsSetup _ or #snsSetWithdrawDestination _
       ) { false };
 
       // Manual "check now": reject anonymous, then shed a caller that has

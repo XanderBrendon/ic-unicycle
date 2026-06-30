@@ -94,6 +94,8 @@ type Unicycle =
    getSnsProposalNeuron: (governance: principal) -> (opt blob);
    getSnsReportConfig: (governance: principal) -> (opt SnsSetReportConfigArg);
    getSnsWasmCanister: () -> (principal) query;
+   getSnsWithdrawDestination: (governance: principal) ->
+    (opt SnsWithdrawDestinationInfo);
    getTimerSchedule: () -> (TimerSchedule) query;
    getTrackedCanisters: () -> (vec TrackedCanister) query;
    recordCyclesNow: (canisterId: principal) -> (Result_6);
@@ -127,6 +129,9 @@ type Unicycle =
     (SnsValidateResult);
    snsSetReportConfig: (arg: SnsSetReportConfigArg) -> ();
    snsSetReportConfigValidate: (arg: SnsSetReportConfigArg) ->
+    (SnsValidateResult);
+   snsSetWithdrawDestination: (arg: SnsSetWithdrawDestinationArg) -> ();
+   snsSetWithdrawDestinationValidate: (arg: SnsSetWithdrawDestinationArg) ->
     (SnsValidateResult);
    snsSetup: (arg: SnsSetupArg) -> ();
    snsSetupValidate: (arg: SnsSetupArg) -> (SnsValidateResult);
@@ -222,11 +227,17 @@ type SuspendCanisterError =
    anonymous;
    notTracked;
  };
+type SnsWithdrawDestinationInfo =
+ record {
+   destination: Account;
+   explicit: bool;
+ };
 type SnsWithdrawArg =
  record {
    amount: nat;
    token: Token;
  };
+type SnsSetWithdrawDestinationArg = record {destination: Account;};
 type SnsValidateResult =
  variant {
    Err: text;
