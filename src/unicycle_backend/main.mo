@@ -3776,6 +3776,7 @@ persistent actor class Unicycle(
     ignore snsLastReportProposal.delete(root);
     ignore snsDrainAlertConfig.delete(root);
     ignore snsLastDrainAlertProposal.delete(root);
+    ignore balanceEvents.delete(root);
     ignore snsRootByGovernance.delete(governance);
   };
 
