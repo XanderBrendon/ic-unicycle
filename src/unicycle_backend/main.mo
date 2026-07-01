@@ -35,6 +35,7 @@ import Report "lib/Report";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
+import SnsDeregister "lib/SnsDeregister";
 
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
@@ -74,6 +75,7 @@ persistent actor class Unicycle(
   public type SnsGrantAdminArg = Types.SnsGrantAdminArg;
   public type SnsRevokeAdminArg = Types.SnsRevokeAdminArg;
   public type SnsSetupArg = Types.SnsSetupArg;
+  public type SnsDeregisterArg = Types.SnsDeregisterArg;
   public type SnsSetDepositConfigArg = Types.SnsSetDepositConfigArg;
   public type SnsSetReportConfigArg = Types.SnsSetReportConfigArg;
   public type SnsSetDrainAlertConfigArg = Types.SnsSetDrainAlertConfigArg;
@@ -3619,6 +3621,7 @@ persistent actor class Unicycle(
     { name = "Unicycle: Grant Admin"; description = "Grant a principal admin access to manage this SNS's Unicycle fleet from the frontend."; target = "snsGrantAdmin"; validator = "snsGrantAdminValidate" },
     { name = "Unicycle: Revoke Admin"; description = "Revoke a principal's Unicycle admin access for this SNS."; target = "snsRevokeAdmin"; validator = "snsRevokeAdminValidate" },
     { name = "Unicycle: Set Withdraw Destination"; description = "Set the destination account for non-ICP (ICRC) token withdrawals; ICP always returns to the SNS treasury."; target = "snsSetWithdrawDestination"; validator = "snsSetWithdrawDestinationValidate" },
+    { name = "Unicycle: Deregister"; description = "Offboard this SNS from Unicycle: withdraw all Unicycle-held funds to the SNS, remove every Unicycle custom function, and erase all Unicycle configuration for this SNS."; target = "snsDeregister"; validator = "snsDeregisterValidate" },
   ];
 
   // Build the AddGenericNervousSystemFunction proposal for one Unicycle twin and
@@ -3689,6 +3692,133 @@ persistent actor class Unicycle(
     regs.toArray();
   };
 
+  // The Unicycle methods a deregister removes from an SNS: every twin target
+  // (which now includes `snsDeregister` itself) plus the manually-registered
+  // `snsSetup` bootstrap. Derived from `snsFunctionSpecs` so it tracks the twin
+  // list automatically.
+  let knownUnicycleMethods : [Text] =
+    Array.concat(Array.map<Types.SnsFunctionSpec, Text>(snsFunctionSpecs, func(s) { s.target }), ["snsSetup"]);
+
+  // Submit a RemoveGenericNervousSystemFunction proposal (deregister) through the
+  // hotkeyed neuron — the teardown mirror of submitSnsAddFunctionProposal.
+  func submitSnsRemoveFunctionProposal(
+    governance : Principal,
+    neuronId : Blob,
+    functionId : Nat64,
+  ) : async Result.Result<Nat, Text> {
+    await submitSnsProposal(
+      governance,
+      neuronId,
+      "Remove Unicycle function #" # functionId.toText(),
+      "Removes the Unicycle custom function (id " # functionId.toText() # ") from this SNS as part of Unicycle deregistration.",
+      #RemoveGenericNervousSystemFunction(functionId),
+    );
+  };
+
+  // Drain one token's full deposit-subaccount balance for an SNS to its resolved
+  // withdraw destination (ICP → treasury; non-ICP → configured/default, burn-
+  // guarded). Best-effort: returns a per-token outcome and never traps.
+  func drainSnsToken(governance : Principal, root : Principal, token : Token) : async Types.SnsWithdrawOutcome {
+    let balance = switch (token) {
+      case (#ICP) { await icpBalanceOf(root) };
+      case (#TCYCLES) { await tcyclesBalanceOf(root) };
+    };
+    let fee = switch (token) { case (#ICP) { icpLedgerFee }; case (#TCYCLES) { tcyclesLedgerFee } };
+    switch (SnsDeregister.drainAmount(balance, fee)) {
+      case null { { token; amount = 0; result = #err("no spendable balance") } };
+      case (?amount) {
+        let dest = SnsWithdraw.resolveDestination(token, snsWithdrawDestination.get(root), governance);
+        // ICP is provably never a minting account, so it skips the burn query.
+        let burns = switch (token) {
+          case (#ICP) { false };
+          case (_) {
+            let ledger : ICRC1.Self = actor (Tokens.ledgerCanisterId(token).toText());
+            let minting = try { await ledger.icrc1_minting_account() } catch (_) { null };
+            SnsWithdraw.isMintingAccount(dest, minting);
+          };
+        };
+        if (burns) {
+          { token; amount; result = #err("destination is the ledger minting (burn) account; set a withdraw destination before deregistering") };
+        } else {
+          switch (await doWithdrawTransfer(root, dest, root, token, amount)) {
+            case (#ok blockIndex) { { token; amount; result = #ok blockIndex } };
+            case (#err e) { { token; amount; result = #err(debug_show e) } };
+          };
+        };
+      };
+    };
+  };
+
+  // Erase every per-SNS map entry for a root (full teardown). Tracked canisters
+  // (and their shared cycle history / top-up history) go through the same
+  // removeTrackedEntry snsRemoveCanister uses, so shared-reading cleanup stays
+  // consistent. The governance→root cache entry is dropped too; it repopulates
+  // from the live registry on the SNS's next call.
+  func clearSnsState(governance : Principal, root : Principal) {
+    switch (tracked.get(root)) {
+      case null {};
+      case (?canisters) {
+        // Snapshot ids before mutating (removeTrackedEntry deletes from this map).
+        let ids = List.empty<Principal>();
+        for (canisterId in canisters.keys()) { ids.add(canisterId) };
+        for (canisterId in ids.values()) { removeTrackedEntry(root, canisterId) };
+      };
+    };
+    ignore tracked.delete(root);
+    ignore topUpHistory.delete(root);
+    ignore topUpsInFlight.delete(root);
+    ignore snsProposalNeuron.delete(root);
+    ignore snsAdmins.delete(root);
+    ignore snsDepositConfig.delete(root);
+    ignore snsWithdrawDestination.delete(root);
+    ignore snsLastDepositProposal.delete(root);
+    ignore snsReportConfig.delete(root);
+    ignore snsLastReportProposal.delete(root);
+    ignore snsDrainAlertConfig.delete(root);
+    ignore snsLastDrainAlertProposal.delete(root);
+    ignore snsRootByGovernance.delete(governance);
+  };
+
+  // Shared deregister engine (the inverse of runSnsSetup): drain all tokens,
+  // remove all Unicycle custom functions, then clear all SNS state. Best-effort
+  // on withdraws and removals — per-item outcomes are collected rather than
+  // trapping, so one stuck token or governance hiccup cannot leave the SNS
+  // half-offboarded. Order matters: withdraw (uses the destination) and remove
+  // (uses the neuron) both run BEFORE clearSnsState wipes those maps.
+  func runSnsDeregister(governance : Principal, root : Principal) : async Types.SnsDeregisterReport {
+    let withdrawals = List.empty<Types.SnsWithdrawOutcome>();
+    for (token in ([#ICP, #TCYCLES] : [Token]).vals()) {
+      withdrawals.add(await drainSnsToken(governance, root, token));
+    };
+
+    let removedFunctions = List.empty<Types.SnsFunctionRemoval>();
+    switch (snsProposalNeuron.get(root)) {
+      case null {
+        // No hotkeyed neuron recorded → nothing to submit removals through.
+      };
+      case (?neuron) {
+        let gov : actor {
+          list_nervous_system_functions : shared () -> async Types.SnsListFunctionsResponse;
+        } = actor (governance.toText());
+        let listed = try { (await gov.list_nervous_system_functions()).functions }
+          catch (_) { [] : [Types.SnsNervousSystemFunction] };
+        let matches = SnsDeregister.functionsToRemove(listed, Principal.fromActor(self), knownUnicycleMethods);
+        for ((id, method) in matches.vals()) {
+          let result = await submitSnsRemoveFunctionProposal(governance, neuron, id);
+          removedFunctions.add({ functionId = id; method; result });
+        };
+      };
+    };
+
+    clearSnsState(governance, root);
+
+    {
+      withdrawals = withdrawals.toArray();
+      removedFunctions = removedFunctions.toArray();
+      clearedConfig = true;
+    };
+  };
+
   // SNS-only execute twin (US23). Resolves the governance caller → SNS root
   // (US21), records the proposal neuron from the arg (US22 store), then submits
   // the registration proposals. Traps only on *systemic* failure (nothing
@@ -3720,6 +3850,34 @@ persistent actor class Unicycle(
       "Register " # count.toText() # " Unicycle custom functions (ids "
       # arg.baseFunctionId.toText() # "–" # lastId.toText()
       # ") on this SNS and set the proposal-submission neuron."
+    );
+  };
+
+  // SNS-only execute twin: the inverse of snsSetup. Resolves governance → root,
+  // runs the shared engine (withdraw all funds → remove all Unicycle functions →
+  // clear all SNS state), then logs. Returns () like the other twins; use
+  // adminSnsDeregister for the structured report.
+  public shared ({ caller }) func snsDeregister(_arg : SnsDeregisterArg) : async () {
+    let root = requireSnsRoot(await resolveSnsRoot(caller), "snsDeregister");
+    let report = await runSnsDeregister(caller, root);
+    log(
+      #info,
+      #sns,
+      "snsDeregister for root " # root.toText()
+      # ": withdrawals=" # report.withdrawals.size().toText()
+      # " removals=" # report.removedFunctions.size().toText(),
+      ?caller,
+    );
+  };
+
+  // Pure payload validation for snsDeregister (no caller). Spells out the
+  // consequences so voters understand this is an irreversible offboarding.
+  public func snsDeregisterValidate(_arg : SnsDeregisterArg) : async SnsValidateResult {
+    #Ok(
+      "Offboard this SNS from Unicycle: withdraw all ICP (to the treasury) and TCYCLES "
+      # "(to the configured destination or the treasury) held for this SNS, submit proposals "
+      # "to remove every Unicycle custom function, and erase all Unicycle configuration and "
+      # "tracked canisters for this SNS. Irreversible without re-onboarding."
     );
   };
 
@@ -4409,6 +4567,19 @@ persistent actor class Unicycle(
     #ok(await runSnsSetup(governance, root, neuronId, baseFunctionId));
   };
 
+  // Admin-gated runner for deregister. Runs the same runSnsDeregister core the
+  // snsDeregister twin uses, but returns the structured report so an operator can
+  // see exactly what was withdrawn / removed (the twin returns ()).
+  public shared ({ caller }) func adminSnsDeregister(governance : Principal) : async Result.Result<Types.SnsDeregisterReport, Text> {
+    if (not isAdmin(caller)) return #err("not admin");
+    let root = switch (await resolveSnsRoot(governance)) {
+      case (?r) r;
+      case null { return #err("governance is not a recognized SNS") };
+    };
+    log(#info, #admin, "adminSnsDeregister " # governance.toText(), ?caller);
+    #ok(await runSnsDeregister(governance, root));
+  };
+
   // Admin-gated observability for the US24 automatic deposit check. The real path
   // is timer-driven and returns nothing, so — mirroring `adminSubmitSnsTestMotion`
   // / `adminSnsSetup` — an admin runs the same `checkSnsDeposit` core for one SNS
@@ -4547,6 +4718,7 @@ persistent actor class Unicycle(
         #adminListRecentTopUps : Any;
         #adminRemoveCanister : Any;
         #adminSeedDrainFixture : Any;
+        #adminSnsDeregister : Any;
         #adminSnsRunDepositCheck : Any;
         #adminSnsRunDrainAlertCheck : Any;
         #adminSnsRunReportCheck : Any;
@@ -4592,6 +4764,8 @@ persistent actor class Unicycle(
         #setCanisterSuspended : Any;
         #setIcpSwapPool : Any;
         #setPrimaryAdmin : Any;
+        #snsDeregister : Any;
+        #snsDeregisterValidate : Any;
         #snsGrantAdmin : Any;
         #snsGrantAdminValidate : Any;
         #snsRecordCyclesNow : Any;
@@ -4637,7 +4811,7 @@ persistent actor class Unicycle(
         or #adminHarvestLpRewards _ or #adminSubmitSnsTestMotion _ or #adminSnsSetup _
         or #adminSnsRunDepositCheck _ or #adminSnsRunReportCheck _
         or #adminSnsRunDrainAlertCheck _ or #adminSeedDrainFixture _
-        or #adminRemoveCanister _
+        or #adminRemoveCanister _ or #adminSnsDeregister _
       ) { isAdmin(caller) };
 
       // SNS governance-only execute twins: legitimate callers are governance
@@ -4647,7 +4821,7 @@ persistent actor class Unicycle(
         or #snsSetCanisterSuspended _ or #snsRemoveCanister _ or #snsRecordCyclesNow _
         or #snsSetProposalNeuron _ or #snsGrantAdmin _ or #snsRevokeAdmin _
         or #snsSetDepositConfig _ or #snsSetReportConfig _ or #snsSetDrainAlertConfig _
-        or #snsSetup _ or #snsSetWithdrawDestination _
+        or #snsSetup _ or #snsSetWithdrawDestination _ or #snsDeregister _
       ) { false };
 
       // Manual "check now": reject anonymous, then shed a caller that has
