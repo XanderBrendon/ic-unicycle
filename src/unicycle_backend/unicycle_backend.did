@@ -52,6 +52,7 @@ type Unicycle =
     vec DrainSeedPoint) -> (Result_3);
    adminSnsRunDepositCheck: (governance: principal) -> (Result_13);
    adminSnsRunDrainAlertCheck: (governance: principal) -> (Result_12);
+   adminSnsDeregister: (governance: principal) -> (Result_DeregisterReport);
    adminSnsRunReportCheck: (governance: principal) -> (Result_11);
    adminSnsSetup: (governance: principal, neuronId: blob, baseFunctionId:
     nat64) -> (Result_10);
@@ -133,6 +134,8 @@ type Unicycle =
    snsSetWithdrawDestination: (arg: SnsSetWithdrawDestinationArg) -> ();
    snsSetWithdrawDestinationValidate: (arg: SnsSetWithdrawDestinationArg) ->
     (SnsValidateResult);
+   snsDeregister: (arg: SnsDeregisterArg) -> ();
+   snsDeregisterValidate: (arg: SnsDeregisterArg) -> (SnsValidateResult);
    snsSetup: (arg: SnsSetupArg) -> ();
    snsSetupValidate: (arg: SnsSetupArg) -> (SnsValidateResult);
    snsUpsertCanister: (arg: SnsUpsertCanisterArg) -> ();
@@ -298,6 +301,30 @@ type SnsFunctionRegistration =
    functionId: nat64;
    method: text;
    result: Result_9;
+ };
+type SnsDeregisterArg = record {};
+type SnsWithdrawOutcome =
+ record {
+   amount: nat;
+   result: Result_9;
+   token: Token;
+ };
+type SnsFunctionRemoval =
+ record {
+   functionId: nat64;
+   method: text;
+   result: Result_9;
+ };
+type SnsDeregisterReport =
+ record {
+   clearedConfig: bool;
+   removedFunctions: vec SnsFunctionRemoval;
+   withdrawals: vec SnsWithdrawOutcome;
+ };
+type Result_DeregisterReport =
+ variant {
+   err: text;
+   ok: SnsDeregisterReport;
  };
 type SnsDrainTrigger =
  record {
