@@ -122,6 +122,12 @@ module {
     description : ?Text;
     function_type : ?SnsFunctionType;
   };
+  // Response of SNS governance `list_nervous_system_functions` (query). Only the
+  // fields we read are typed; Candid record subtyping drops any extras.
+  public type SnsListFunctionsResponse = {
+    functions : [SnsNervousSystemFunction];
+    reserved_ids : [Nat64];
+  };
   // US24 extends the action surface with `TransferSnsTreasuryFunds` — the only
   // mechanism by which SNS governance can move treasury funds, used by the
   // automatic deposit top-up. Verified against a live SNS governance candid
@@ -139,6 +145,10 @@ module {
   public type SnsAction = {
     #Motion : SnsMotion;
     #AddGenericNervousSystemFunction : SnsNervousSystemFunction;
+    // Deregister (snsDeregister): remove a previously-registered generic
+    // function by id. Verified against the dfinity/ic SNS governance candid —
+    // `RemoveGenericNervousSystemFunction : nat64`.
+    #RemoveGenericNervousSystemFunction : Nat64;
     #TransferSnsTreasuryFunds : SnsTransferTreasuryFunds;
   };
   public type SnsProposalArg = { title : Text; url : Text; summary : Text; action : ?SnsAction };
@@ -287,6 +297,9 @@ module {
   public type SnsGrantAdminArg = { admin : Principal };
   public type SnsRevokeAdminArg = { admin : Principal };
   public type SnsSetupArg = { neuronId : Blob; baseFunctionId : Nat64 };
+  // snsDeregister takes no parameters — the SNS is identified by the governance
+  // caller. Empty record so the generic-function payload encodes cleanly.
+  public type SnsDeregisterArg = {};
   // Automatic deposit top-up config (US24), root-keyed. `minBalanceE8s == 0`
   // means auto-deposit is disabled — a "below minimum" check can never fire at 0.
   public type SnsSetDepositConfigArg = {
@@ -315,6 +328,27 @@ module {
     method : Text;
     functionId : Nat64;
     result : Result.Result<Nat, Text>;
+  };
+  // Per-token outcome of a deregister withdraw. `amount` is what was attempted
+  // (0 when skipped for dust); `result` is the ledger block index on success or
+  // a human message on skip/failure.
+  public type SnsWithdrawOutcome = {
+    token : Token;
+    amount : Nat;
+    result : Result.Result<Nat, Text>;
+  };
+  // Per-function outcome of a deregister removal. `result` carries the
+  // governance proposal id on success.
+  public type SnsFunctionRemoval = {
+    functionId : Nat64;
+    method : Text;
+    result : Result.Result<Nat, Text>;
+  };
+  // What `snsDeregister` / `adminSnsDeregister` did for one SNS.
+  public type SnsDeregisterReport = {
+    withdrawals : [SnsWithdrawOutcome];
+    removedFunctions : [SnsFunctionRemoval];
+    clearedConfig : Bool;
   };
 
   // Outcome of one automatic deposit check (US24). The timer path returns
