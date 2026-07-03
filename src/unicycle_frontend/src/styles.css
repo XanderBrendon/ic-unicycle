@@ -247,6 +247,10 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
 .panel-body { padding: var(--pad); }
 .panel-body.flush { padding: 0; }
 
+/* Inside a modal the body scrolls while the header/footer stay pinned. */
+.modal .panel-head { flex: none; }
+.modal .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
 .btn {
   display: inline-flex; align-items: center; gap: 7px;
   height: 32px; padding: 0 12px; border-radius: var(--radius);
@@ -391,7 +395,7 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 
 /* modal */
 .scrim { position: fixed; inset: 0; background: color-mix(in oklch, var(--bg-2) 72%, transparent); backdrop-filter: blur(3px); z-index: 60; display: grid; place-items: center; padding: 24px; }
-.modal { width: 100%; max-width: 460px; background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--shadow); animation: pop .18s var(--ease); }
+.modal { width: 100%; max-width: 460px; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--shadow); animation: pop .18s var(--ease); }
 @keyframes fade { from { opacity: 0.3; } }
 @keyframes pop { from { transform: translateY(10px) scale(0.985); } }
 
