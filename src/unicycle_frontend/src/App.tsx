@@ -259,6 +259,9 @@ export function App() {
                 onOpen={(id) => navigate({ page: 'canister', id })}
                 onAdd={() => setAddOpen(true)}
                 onAddSns={() => setAddSnsOpen(true)}
+                snsNames={Object.fromEntries(
+                  Object.entries(snsInfos.infos).map(([k, v]) => [k, v?.name ?? undefined]),
+                )}
               />
             ) : route.page === 'wallet' ? (
               <Wallet identity={identity} />

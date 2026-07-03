@@ -38,6 +38,7 @@ export interface OverviewProps {
   onOpen: (id: Principal) => void;
   onAdd: () => void;
   onAddSns?: () => void;
+  snsNames?: Record<string, string | undefined>;
 }
 
 type SortKey = 'risk' | 'name' | 'health' | 'cur' | 'min' | 'topup' | 'last';
@@ -323,11 +324,13 @@ function FleetTable({
   onOpen,
   sort,
   onSort,
+  snsNames,
 }: {
   fleet: FleetCanister[];
   onOpen: (id: Principal) => void;
   sort: SortState;
   onSort: (k: SortKey) => void;
+  snsNames?: Record<string, string | undefined>;
 }) {
   const now = useNow();
   const Th = ({ k, children, num, w }: { k?: SortKey; children?: ReactNode; num?: boolean; w?: number }) => {
@@ -382,7 +385,25 @@ function FleetTable({
             </td>
             <td>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 600, fontSize: 12.5 }}>{c.label}</span>
+                <span style={{ fontWeight: 600, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {c.label}
+                  {c.snsRoot && (
+                    <span
+                      title={`Funded via tracked SNS ${c.snsRoot.toText()}`}
+                      style={{
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        padding: '1px 6px',
+                        borderRadius: 5,
+                        border: '1px solid var(--border-2)',
+                        color: 'var(--text-2)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {snsNames?.[c.snsRoot.toText()] ?? fmtPid(c.snsRoot.toText(), 4, 3)}
+                    </span>
+                  )}
+                </span>
                 <span className="mono faint" style={{ fontSize: 10.5 }}>
                   {fmtPid(c.idText, 7, 4)}
                 </span>
@@ -587,13 +608,14 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 }
 
 /* ---------------- fleet dashboard ---------------- */
-export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, schedule }: {
+export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, schedule, snsNames }: {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;
   onAddSns?: () => void;
   onGroupEdit?: () => void;
   schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null hides the next-check indicator
+  snsNames?: Record<string, string | undefined>;
 }) {
   const now = useNow();
   const [sort, setSort] = useState<SortState>({ key: 'risk', dir: 'asc' });
@@ -712,7 +734,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
                 : 'No canisters match this filter.'}
           </Empty>
         ) : (
-          <FleetTable fleet={rows} onOpen={onOpen} sort={sort} onSort={onSort} />
+          <FleetTable fleet={rows} onOpen={onOpen} sort={sort} onSort={onSort} snsNames={snsNames} />
         )}
       </Panel>
       <Panel
@@ -734,7 +756,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
 }
 
 /* ---------------- Dashboard ---------------- */
-export function Overview({ identity, fleet, onOpen, onAdd, onAddSns }: OverviewProps) {
+export function Overview({ identity, fleet, onOpen, onAdd, onAddSns, snsNames }: OverviewProps) {
   const deposit = useDepositBalances(identity);
   const rate = useIcpTcRate(identity);
   const balHist = useBalanceHistory(identity);
@@ -757,7 +779,7 @@ export function Overview({ identity, fleet, onOpen, onAdd, onAddSns }: OverviewP
   return (
     <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
       <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={balHist.events} />
-      <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} onAddSns={onAddSns} schedule={schedule} />
+      <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} onAddSns={onAddSns} schedule={schedule} snsNames={snsNames} />
     </div>
   );
 }
