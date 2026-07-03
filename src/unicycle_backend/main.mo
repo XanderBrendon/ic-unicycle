@@ -23,6 +23,7 @@ import CyclesLedger "cycles_ledger";
 import Types "types";
 import Durations "lib/Durations";
 import Subaccount "lib/Subaccount";
+import SnsCanisters "lib/SnsCanisters";
 import Tokens "lib/Tokens";
 import Errors "lib/Errors";
 import Settings "lib/Settings";
@@ -159,6 +160,7 @@ persistent actor class Unicycle(
       dapps : [SnsCanisterSummary];
       archives : [SnsCanisterSummary];
     };
+    list_sns_canisters : ({}) -> async Types.SnsListCanistersResponse;
   } {
     actor (root.toText());
   };
@@ -2769,9 +2771,11 @@ persistent actor class Unicycle(
 
     // Controllership precondition. SNS-controlled entries (caller is a known SNS
     // root) are confirmed via the root's canister summary — no blackhole
-    // controllership needed; everyone else via the blackhole probe. A returned
-    // #err means the relevant controller is not in place; the status payload is
-    // discarded (the recurring timer or recordCyclesNow seed the first reading).
+    // controllership needed; everyone else via the blackhole probe, falling
+    // back to membership in one of the caller's tracked SNSes. The stored
+    // config's snsRoot stamp always reflects this verification outcome:
+    // null for blackhole/SNS-root paths, ?root for the tracked-SNS fallback.
+    var verifiedSnsRoot : ?Principal = null;
     if (isKnownSnsRoot(caller)) {
       switch (await snsRootCycles(caller)) {
         case (#err reason) {
@@ -2789,14 +2793,19 @@ persistent actor class Unicycle(
       } catch (e) {
         #err("blackhole unreachable: " # e.message());
       };
-      switch (probe) {
-        case (#err reason) {
-          return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
+      let blackholeFailure : ?UpsertCanisterError = switch (probe) {
+        case (#err reason) { ?(#blackholeNotController { blackholeCanisterId = blackholeId; reason }) };
+        case (#ok(#err msg)) { ?(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg }) };
+        case (#ok(#ok _status)) { null /* controllership confirmed */ };
+      };
+      switch (blackholeFailure) {
+        case null {};
+        case (?failure) {
+          switch (await trackedSnsMatch(caller, canisterId)) {
+            case (?root) { verifiedSnsRoot := ?root };
+            case null { return #err(failure) };
+          };
         };
-        case (#ok(#err msg)) {
-          return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg });
-        };
-        case (#ok(#ok _status)) { /* controllership confirmed */ };
       };
     };
 
@@ -2810,7 +2819,8 @@ persistent actor class Unicycle(
     };
     let prior = userMap.get(canisterId);
     let merged = Tracking.mergeConfig(prior, config);
-    userMap.add(canisterId, merged);
+    let stored = { merged with snsRoot = verifiedSnsRoot };
+    userMap.add(canisterId, stored);
     // Audit the tracking-config change. Without this, a later threshold raise is
     // indistinguishable in the cycle history from a missed top-up: an old reading
     // that was fine under the threshold then in effect looks below-threshold once
@@ -2818,7 +2828,7 @@ persistent actor class Unicycle(
     // top-up amount) in effect at any time be reconstructed. Mirrors
     // updateAdminSettings' diff style; covers the direct + both SNS upsert paths,
     // which all funnel through here.
-    log(#info, #topUp, "upsertCanister " # canisterId.toText() # " " # debug_show prior # " -> " # debug_show merged, ?caller);
+    log(#info, #topUp, "upsertCanister " # canisterId.toText() # " " # debug_show prior # " -> " # debug_show stored, ?caller);
     #ok();
   };
 
@@ -3092,6 +3102,27 @@ persistent actor class Unicycle(
     for (s in summary.dapps.vals()) { addSummaryCycles(acc, s) };
     for (s in summary.archives.vals()) { addSummaryCycles(acc, s) };
     #ok(acc.toArray());
+  };
+
+  // First tracked root of `owner` whose list_sns_canisters contains
+  // `canisterId` — the upsert fallback when the blackhole probe fails. A root
+  // that traps or is unreachable is treated as no-match, not fatal: the user
+  // sees the combined not-verifiable error and can retry.
+  func trackedSnsMatch(owner : Principal, canisterId : Principal) : async ?Principal {
+    let roots = switch (userTrackedSnsRoots.get(owner)) {
+      case null { return null };
+      case (?s) { s.values().toArray() };
+    };
+    for (root in roots.vals()) {
+      let listing = try {
+        ?(await snsRoot(root).list_sns_canisters({}));
+      } catch (_) { null };
+      switch (listing) {
+        case (?res) { if (SnsCanisters.contains(res, canisterId)) return ?root };
+        case null {};
+      };
+    };
+    null;
   };
 
   func addSummaryCycles(into : List.List<(Principal, Nat)>, s : SnsCanisterSummary) {
