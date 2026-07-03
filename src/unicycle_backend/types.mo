@@ -185,6 +185,12 @@ module {
     // configs deserialize as null on upgrade. Settable via `upsertCanister`:
     // `mergeConfig` takes the incoming value (unlike `suspendedUntil`).
     nickname : ?Text;
+    // The SNS root this entry was verified against (user-tracked SNS funding).
+    // null = blackhole-verified, or an entry owned by an SNS root itself.
+    // Additive optional field — existing stored configs deserialize as null.
+    // Written ONLY by upsertCanisterFor's verification outcome; incoming
+    // values are discarded like `suspendedUntil`.
+    snsRoot : ?Principal;
   };
 
   public type UpsertCanisterError = {

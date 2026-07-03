@@ -1,4 +1,5 @@
 import Types "../types";
+import List "mo:core/List";
 
 // Tracked-canister top-up decisions (US06/US20).
 // INVARIANTS:
@@ -25,14 +26,27 @@ module {
   // upsert preserves any existing suspension and discards the incoming field —
   // `setCanisterSuspended` is the only path that mutates `suspendedUntil`. The
   // `nickname` is the opposite: it takes the incoming value, so editing a
-  // canister can rename it (and clear it by sending null).
+  // canister can rename it (and clear it by sending null). `snsRoot` behaves
+  // like suspension: preserved from prior, discarded from incoming — the
+  // verification step in upsertCanisterFor is the only writer.
   public func mergeConfig(prior : ?Types.CanisterConfig, incoming : Types.CanisterConfig) : Types.CanisterConfig {
     let preserved : ?Nat = switch (prior) { case null { null }; case (?p) { p.suspendedUntil } };
+    let priorRoot : ?Principal = switch (prior) { case null { null }; case (?p) { p.snsRoot } };
     {
       minCycleBalance = incoming.minCycleBalance;
       cycleTopUpAmount = incoming.cycleTopUpAmount;
       suspendedUntil = preserved;
       nickname = incoming.nickname;
+      snsRoot = priorRoot;
     };
+  };
+
+  // The user-tracked-SNS cascade selection: ids of entries stamped with `root`.
+  public func stampedWith(entries : [(Principal, Types.CanisterConfig)], root : Principal) : [Principal] {
+    let acc = List.empty<Principal>();
+    for ((id, cfg) in entries.vals()) {
+      if (cfg.snsRoot == ?root) { acc.add(id) };
+    };
+    acc.toArray();
   };
 }

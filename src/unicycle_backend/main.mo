@@ -2842,6 +2842,7 @@ persistent actor class Unicycle(
       cycleTopUpAmount = cfg.cycleTopUpAmount;
       suspendedUntil = nextSuspendedUntil;
       nickname = cfg.nickname;
+      snsRoot = cfg.snsRoot;
     });
     #ok();
   };
@@ -4771,7 +4772,7 @@ persistent actor class Unicycle(
     };
     switch (userMap.get(canisterId)) {
       case (?_) {};
-      case null { userMap.add(canisterId, { minCycleBalance = 1; cycleTopUpAmount = 1; suspendedUntil = null; nickname = null }) };
+      case null { userMap.add(canisterId, { minCycleBalance = 1; cycleTopUpAmount = 1; suspendedUntil = null; nickname = null; snsRoot = null }) };
     };
     #ok();
   };

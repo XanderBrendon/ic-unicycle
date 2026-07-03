@@ -1,12 +1,25 @@
 import { test } "mo:test";
+import Principal "mo:core/Principal";
 import Tracking "../lib/Tracking";
 
-func cfg(min : Nat, top : Nat, susp : ?Nat) : { minCycleBalance : Nat; cycleTopUpAmount : Nat; suspendedUntil : ?Nat; nickname : ?Text } {
-  { minCycleBalance = min; cycleTopUpAmount = top; suspendedUntil = susp; nickname = null };
+type Cfg = {
+  minCycleBalance : Nat;
+  cycleTopUpAmount : Nat;
+  suspendedUntil : ?Nat;
+  nickname : ?Text;
+  snsRoot : ?Principal;
 };
 
-func named(min : Nat, top : Nat, susp : ?Nat, name : ?Text) : { minCycleBalance : Nat; cycleTopUpAmount : Nat; suspendedUntil : ?Nat; nickname : ?Text } {
-  { minCycleBalance = min; cycleTopUpAmount = top; suspendedUntil = susp; nickname = name };
+func cfg(min : Nat, top : Nat, susp : ?Nat) : Cfg {
+  { minCycleBalance = min; cycleTopUpAmount = top; suspendedUntil = susp; nickname = null; snsRoot = null };
+};
+
+func named(min : Nat, top : Nat, susp : ?Nat, name : ?Text) : Cfg {
+  { minCycleBalance = min; cycleTopUpAmount = top; suspendedUntil = susp; nickname = name; snsRoot = null };
+};
+
+func stamped(root : ?Principal) : Cfg {
+  { minCycleBalance = 1; cycleTopUpAmount = 2; suspendedUntil = null; nickname = null; snsRoot = root };
 };
 
 test("below threshold, not suspended -> topUp(amount)", func() {
@@ -50,4 +63,34 @@ test("mergeConfig takes the incoming nickname (rename), unlike suspension", func
 test("mergeConfig can clear the nickname by sending null", func() {
   let merged = Tracking.mergeConfig(?named(1, 2, null, ?"old"), named(100, 200, null, null));
   assert merged.nickname == null;
+});
+
+let rootA = Principal.fromText("ibahq-taaaa-aaaaq-aadna-cai");
+let rootB = Principal.fromText("2jvtu-yqaaa-aaaaq-aaama-cai");
+let canX = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
+let canY = Principal.fromText("mxzaz-hqaaa-aaaar-qaada-cai");
+
+test("mergeConfig preserves prior snsRoot and discards incoming", func() {
+  let merged = Tracking.mergeConfig(?stamped(?rootA), stamped(?rootB));
+  assert merged.snsRoot == ?rootA;
+});
+
+test("mergeConfig with no prior -> null snsRoot", func() {
+  let merged = Tracking.mergeConfig(null, stamped(?rootB));
+  assert merged.snsRoot == null;
+});
+
+test("stampedWith picks only entries stamped with the given root", func() {
+  let entries : [(Principal, Cfg)] = [
+    (canX, stamped(?rootA)),
+    (canY, stamped(?rootB)),
+    (rootA, stamped(null)),
+  ];
+  let hits = Tracking.stampedWith(entries, rootA);
+  assert hits == [canX];
+});
+
+test("stampedWith on empty / no-match -> empty", func() {
+  assert Tracking.stampedWith([], rootA) == [];
+  assert Tracking.stampedWith([(canX, stamped(null))], rootA) == [];
 });
