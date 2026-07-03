@@ -100,6 +100,21 @@ module {
     governance_canister_id : ?Principal;
   };
 
+  // SNS root `list_sns_canisters` response — a query twin of the summary the
+  // upsert verification already reads, listing ids regardless of status. Only
+  // fields we read are typed; Candid record subtyping drops any extras.
+  // `extensions` is absent on older roots and decodes as null.
+  public type SnsListCanistersResponse = {
+    root : ?Principal;
+    governance : ?Principal;
+    ledger : ?Principal;
+    swap : ?Principal;
+    index : ?Principal;
+    dapps : [Principal];
+    archives : [Principal];
+    extensions : ?{ extension_canister_ids : [Principal] };
+  };
+
   public type SnsMotion = { motion_text : Text };
   // US23 extends the action surface with `AddGenericNervousSystemFunction` so
   // `snsSetup` can register the Unicycle twins as SNS custom functions. Verified
