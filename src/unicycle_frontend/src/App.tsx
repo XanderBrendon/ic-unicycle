@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { Principal } from '@icp-sdk/core/principal';
 import { useAuth } from './auth/useAuth';
 import { useFleet } from './canisters/useFleet';
 import { useIsAdmin } from './admin/useIsAdmin';
 import { useMySnsAdminRoots } from './admin/useMySnsAdminRoots';
+import { useSnsInfos } from './sns/useSnsInfos';
 import { Icon, type IconName } from './ui/icons';
 import { useTheme } from './ui/theme';
 import { fmtPid } from './ui/format';
@@ -13,17 +13,21 @@ import { Overview } from './screens/Overview';
 import { CanisterDetail } from './screens/CanisterDetail';
 import { Wallet } from './screens/Wallet';
 import { Admin } from './screens/Admin';
+import { SnsHome } from './screens/SnsHome';
 import { AddCanisterModal } from './canisters/CanisterModals';
-import { useHashRoute, type Page } from './router';
+import { useHashRoute, type Page, type Route } from './router';
 
-interface NavItem {
-  id: Page;
+interface NavEntry {
+  key: string;
   label: string;
   icon: IconName;
+  route: Route;
+  active: boolean;
+  badge?: number;
 }
 interface NavGroup {
   sec: string | null;
-  items: NavItem[];
+  items: NavEntry[];
 }
 
 const TITLE: Record<Page, string> = { overview: 'Overview', wallet: 'Wallet', admin: 'Admin' };
@@ -31,31 +35,30 @@ const TITLE: Record<Page, string> = { overview: 'Overview', wallet: 'Wallet', ad
 export function App() {
   const { identity, loading, signIn, signOut } = useAuth();
   const { theme, toggle } = useTheme();
-  const [actingAs, setActingAs] = useState<Principal | null>(null);
   const { route, navigate } = useHashRoute();
   const [addOpen, setAddOpen] = useState(false);
 
-  const fleet = useFleet(identity, actingAs);
+  const fleet = useFleet(identity);
   const { isAdmin, loading: adminLoading } = useIsAdmin(identity);
   const { roots: snsAdminRoots } = useMySnsAdminRoots(identity);
+  const snsInfos = useSnsInfos(snsAdminRoots);
 
   const selected = route.page === 'canister' ? route.id : null;
 
-  // Drop a stale "Acting as" selection when the signed-in identity no longer
-  // administers that root (sign-out clears roots; a new identity has its own).
-  useEffect(() => {
-    if (actingAs && !(snsAdminRoots ?? []).some((r) => r.toString() === actingAs.toString())) {
-      setActingAs(null);
-    }
-  }, [snsAdminRoots, actingAs]);
-
-  // Keep the route valid: Admin is admin-only; the personal Wallet is hidden
-  // while acting as an SNS root. Replace (not push) so back doesn't bounce, and
-  // wait for the admin check to resolve before kicking a deep-linked admin out.
+  // Keep the route valid: Admin is admin-only; an sns/snsCanister route must
+  // still be one of the roots the identity administers. Replace (not push) so
+  // back doesn't bounce, and wait for the roots to resolve (null while loading)
+  // before kicking a deep-linked route out.
   useEffect(() => {
     if (route.page === 'admin' && !isAdmin && !adminLoading) navigate({ page: 'overview' }, { replace: true });
-    if (route.page === 'wallet' && actingAs) navigate({ page: 'overview' }, { replace: true });
-  }, [route, isAdmin, adminLoading, actingAs, navigate]);
+    if (
+      (route.page === 'sns' || route.page === 'snsCanister') &&
+      snsAdminRoots !== null &&
+      !snsAdminRoots.some((r) => r.toText() === route.root.toText())
+    ) {
+      navigate({ page: 'overview' }, { replace: true });
+    }
+  }, [route, isAdmin, adminLoading, snsAdminRoots, navigate]);
 
   if (!identity) {
     return <SignIn onSignIn={signIn} loading={loading} />;
@@ -63,18 +66,45 @@ export function App() {
 
   const principalText = identity.getPrincipal().toString();
 
-  const go = (p: Page) => navigate(p === 'admin' ? { page: 'admin', tab: 'overview' } : { page: p });
-
+  const snsNavRoots = snsAdminRoots ?? [];
   const nav: NavGroup[] = [
     {
       sec: null,
       items: [
-        { id: 'overview', label: 'Overview', icon: 'overview' },
-        ...(actingAs ? [] : [{ id: 'wallet' as Page, label: 'Wallet', icon: 'wallet' as IconName }]),
+        {
+          key: 'overview',
+          label: 'Overview',
+          icon: 'overview',
+          route: { page: 'overview' },
+          active: route.page === 'overview',
+          badge: fleet.counts.atRisk > 0 ? fleet.counts.atRisk : undefined,
+        },
+        { key: 'wallet', label: 'Wallet', icon: 'wallet', route: { page: 'wallet' }, active: route.page === 'wallet' },
       ],
     },
+    ...(snsNavRoots.length > 0
+      ? [{
+          sec: 'SNS',
+          items: snsNavRoots.map((r): NavEntry => ({
+            key: `sns:${r.toText()}`,
+            label: snsInfos.infos[r.toText()]?.name ?? fmtPid(r.toText(), 6, 4),
+            icon: 'shield',
+            route: { page: 'sns', root: r, tab: 'overview' },
+            active: (route.page === 'sns' || route.page === 'snsCanister') && route.root.toText() === r.toText(),
+          })),
+        }]
+      : []),
     ...(isAdmin
-      ? [{ sec: 'Service', items: [{ id: 'admin' as Page, label: 'Admin', icon: 'admin' as IconName }] }]
+      ? [{
+          sec: 'Service',
+          items: [{
+            key: 'admin',
+            label: 'Admin',
+            icon: 'admin' as IconName,
+            route: { page: 'admin', tab: 'overview' } as Route,
+            active: route.page === 'admin',
+          }],
+        }]
       : []),
   ];
 
@@ -82,7 +112,13 @@ export function App() {
     ? fleet.canisters?.find((c) => c.canisterId.toString() === selected.toString()) ?? null
     : null;
   const selectedLabel = selected ? selectedRow?.label ?? fmtPid(selected.toString()) : null;
-  const crumbs: string[] = selected ? ['overview', selectedLabel as string] : [route.page];
+  const crumbs: string[] = selected
+    ? ['overview', selectedLabel as string]
+    : route.page === 'sns'
+      ? ['sns', snsInfos.infos[route.root.toText()]?.name ?? fmtPid(route.root.toText(), 6, 4)]
+      : route.page === 'snsCanister'
+        ? ['sns', fmtPid(route.id.toText(), 6, 4)]
+        : [route.page];
 
   return (
     <div className="app">
@@ -101,18 +137,13 @@ export function App() {
           {nav.map((group, gi) => (
             <div key={gi} style={{ display: 'contents' }}>
               {group.sec && <div className="nav-sec">{group.sec}</div>}
-              {group.items.map((it) => {
-                const active = route.page === it.id && !selected;
-                return (
-                  <a key={it.id} className={`nav-item ${active ? 'active' : ''}`} onClick={() => go(it.id)}>
-                    <Icon name={it.icon} size={16} className="ico" />
-                    {it.label}
-                    {it.id === 'overview' && fleet.counts.atRisk > 0 && (
-                      <span className="nav-badge alert">{fleet.counts.atRisk}</span>
-                    )}
-                  </a>
-                );
-              })}
+              {group.items.map((it) => (
+                <a key={it.key} className={`nav-item ${it.active ? 'active' : ''}`} onClick={() => navigate(it.route)}>
+                  <Icon name={it.icon} size={16} className="ico" />
+                  {it.label}
+                  {it.badge !== undefined && <span className="nav-badge alert">{it.badge}</span>}
+                </a>
+              ))}
             </div>
           ))}
         </nav>
@@ -142,12 +173,6 @@ export function App() {
 
           <IdentityMenu
             principalText={principalText}
-            actingAs={actingAs}
-            roots={snsAdminRoots ?? []}
-            onActingAsChange={(p) => {
-              setActingAs(p);
-              if (route.page === 'canister') navigate({ page: 'overview' });
-            }}
             onSignOut={() => {
               signOut();
               navigate({ page: 'overview' });
@@ -161,42 +186,17 @@ export function App() {
 
         <div className="content">
           <div className="page">
-            {actingAs && !selected && (
-              <div
-                className="panel"
-                style={{
-                  marginBottom: 'var(--gap)',
-                  padding: '10px var(--pad)',
-                  display: 'flex',
-                  gap: 10,
-                  alignItems: 'center',
-                  borderColor: 'var(--accent-line)',
-                  background: 'var(--accent-soft)',
-                }}
-              >
-                <Icon name="shield" size={14} style={{ color: 'var(--accent-ink)' }} />
-                <span style={{ fontSize: 12.5 }}>
-                  Acting as SNS root <span className="mono">{fmtPid(actingAs.toString())}</span>. Managing the SNS fleet —
-                  your personal wallet is hidden.
-                </span>
-                <button className="btn sm ghost" style={{ marginLeft: 'auto' }} onClick={() => setActingAs(null)}>
-                  Exit
-                </button>
-              </div>
-            )}
-
             {selected ? (
               <CanisterDetail
                 identity={identity}
                 canisterId={selected}
-                actingAs={actingAs}
+                actingAs={null}
                 onBack={() => navigate({ page: 'overview' })}
                 onChanged={fleet.refresh}
               />
             ) : route.page === 'overview' ? (
               <Overview
                 identity={identity}
-                actingAs={actingAs}
                 fleet={fleet}
                 onOpen={(id) => navigate({ page: 'canister', id })}
                 onAdd={() => setAddOpen(true)}
@@ -209,6 +209,26 @@ export function App() {
                 tab={route.tab}
                 onTabChange={(tab) => navigate({ page: 'admin', tab })}
               />
+            ) : route.page === 'sns' ? (
+              <SnsHome
+                identity={identity}
+                root={route.root}
+                info={snsInfos.infos[route.root.toText()]}
+                infoRefreshing={snsInfos.refreshing[route.root.toText()] ?? false}
+                infoError={snsInfos.errors[route.root.toText()] ?? null}
+                onRefreshInfo={() => snsInfos.refresh(route.root)}
+                tab={route.tab}
+                onTabChange={(tab) => navigate({ page: 'sns', root: route.root, tab })}
+                onOpen={(id) => navigate({ page: 'snsCanister', root: route.root, id })}
+              />
+            ) : route.page === 'snsCanister' ? (
+              <CanisterDetail
+                identity={identity}
+                canisterId={route.id}
+                actingAs={route.root}
+                onBack={() => navigate({ page: 'sns', root: route.root, tab: 'overview' })}
+                onChanged={() => {}}
+              />
             ) : null}
           </div>
         </div>
@@ -217,7 +237,7 @@ export function App() {
       {addOpen && (
         <AddCanisterModal
           identity={identity}
-          actingAs={actingAs}
+          actingAs={null}
           onClose={() => setAddOpen(false)}
           onAdded={() => {
             fleet.refresh();

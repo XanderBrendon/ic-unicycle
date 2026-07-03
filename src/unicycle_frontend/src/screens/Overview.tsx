@@ -34,7 +34,6 @@ const TC_UNIT = 1e12;
 
 export interface OverviewProps {
   identity: Identity;
-  actingAs: Principal | null;
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;

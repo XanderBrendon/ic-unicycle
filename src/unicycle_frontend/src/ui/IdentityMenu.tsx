@@ -1,21 +1,14 @@
 // Topbar identity chip + dropdown panel: full principal with copy button,
-// acting-as switcher, and sign out. Replaces the old sidebar identity box.
+// and sign out. Replaces the old sidebar identity box.
 import { useEffect, useRef, useState } from 'react';
-import type { Principal } from '@icp-sdk/core/principal';
 import { Icon } from './icons';
 import { fmtPid } from './format';
 
 export function IdentityMenu({
   principalText,
-  actingAs,
-  roots,
-  onActingAsChange,
   onSignOut,
 }: {
   principalText: string;
-  actingAs: Principal | null;
-  roots: Principal[];
-  onActingAsChange: (p: Principal | null) => void;
   onSignOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -48,20 +41,10 @@ export function IdentityMenu({
       .catch(() => {});
   };
 
-  // Old native <select> only fired onChange on a real change; keep that, since
-  // onActingAsChange resets the selected canister.
-  const pick = (p: Principal | null) => {
-    setOpen(false);
-    if ((actingAs?.toString() ?? '') !== (p?.toString() ?? '')) onActingAsChange(p);
-  };
-
-  const effective = actingAs ? actingAs.toString() : principalText;
-
   return (
     <div className="identity-menu" ref={ref}>
-      <button className="chip" title={effective} onClick={() => setOpen((v) => !v)}>
-        {actingAs && <span className="acting-mark">acting as</span>}
-        {fmtPid(effective, 6, 4)}
+      <button className="chip" title={principalText} onClick={() => setOpen((v) => !v)}>
+        {fmtPid(principalText, 6, 4)}
         <Icon name="chevronD" size={12} style={{ color: 'var(--text-2)' }} />
       </button>
 
@@ -85,26 +68,6 @@ export function IdentityMenu({
               </button>
             </div>
           </div>
-
-          {roots.length > 0 && (
-            <div className="identity-sec">
-              <div className="eyebrow" style={{ marginBottom: 4 }}>Acting as</div>
-              <button className="identity-opt" onClick={() => pick(null)}>
-                <span className={actingAs === null ? 'dot ok' : 'dot'} style={{ width: 6, height: 6, boxShadow: 'none' }} />
-                Self
-              </button>
-              {roots.map((r) => {
-                const on = actingAs?.toString() === r.toString();
-                return (
-                  <button key={r.toString()} className="identity-opt" title={r.toString()} onClick={() => pick(r)}>
-                    <span className={on ? 'dot ok' : 'dot'} style={{ width: 6, height: 6, boxShadow: 'none' }} />
-                    <span className="mono">{fmtPid(r.toString(), 6, 4)}</span>
-                    <span className="faint" style={{ marginLeft: 'auto', fontSize: 10.5 }}>SNS root</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           <div className="identity-sec">
             <button className="identity-opt" onClick={onSignOut}>

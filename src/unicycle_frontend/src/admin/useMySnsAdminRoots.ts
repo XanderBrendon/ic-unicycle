@@ -5,7 +5,7 @@ import { createUnicycleBackendActor } from '../auth/actor';
 
 export interface MySnsAdminRoots {
   // The SNS roots the signed-in identity may act on behalf of. Empty ⇒ the user
-  // administers no SNS, so the "Acting as" switcher is not shown.
+  // administers no SNS, so the SNS nav group is not shown.
   roots: Principal[] | null;
   error: string | null;
   loading: boolean;
