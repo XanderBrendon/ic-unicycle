@@ -36,6 +36,7 @@ import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
+import SnsPropose "lib/SnsPropose";
 
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
@@ -3020,6 +3021,30 @@ persistent actor class Unicycle(
     };
   };
 
+  // Reverse lookup of `snsRootByGovernance` (governance → root). The admin-
+  // facing propose methods have the root but proposals go to governance; no
+  // existing path derives governance from a root. Refreshes the registry
+  // (throttled, same as resolveSnsRoot) when the root is unknown.
+  func snsGovernanceForRoot(root : Principal) : async ?Principal {
+    func scan() : ?Principal {
+      for ((governance, r) in snsRootByGovernance.entries()) {
+        if (r == root) return ?governance;
+      };
+      null;
+    };
+    switch (scan()) {
+      case (?g) { ?g };
+      case null {
+        let now = Int.abs(Time.now());
+        if (now >= lastSnsRefreshNs + SNS_REFRESH_MIN_INTERVAL_NS) {
+          lastSnsRefreshNs := now;
+          await refreshSnsRegistry();
+        };
+        scan();
+      };
+    };
+  };
+
   func requireSnsRoot(resolved : ?Principal, method : Text) : Principal {
     switch (resolved) {
       case (?root) { root };
@@ -3374,6 +3399,92 @@ persistent actor class Unicycle(
   ) : async Result.Result<(), RecordCyclesError> {
     requireSnsAdmin(caller, root, "asSnsRecordCyclesNow");
     await recordCyclesNowFor(root, canisterId, true);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Admin-initiated config-change proposals. Admins cannot set the Deposit /
+  // Report / DrainAlert configs directly (those stay proposal-gated behind the
+  // sns* twins); instead these methods submit an
+  // ExecuteGenericNervousSystemFunction proposal through the SNS's hotkeyed
+  // neuron on the admin's behalf. Config changes only when the SNS votes to
+  // adopt. The #ok Nat is the governance proposal id.
+  // ---------------------------------------------------------------------------
+
+  // Shared engine: resolve governance + neuron, discover the registered
+  // function id for the target twin (same self-discovery as snsDeregister —
+  // the backend never stores baseFunctionId), then submit. Callers must have
+  // admin-gated (requireSnsAdmin traps before any await) and pre-built the
+  // summary and candid payload.
+  func proposeSnsConfigChange(
+    caller : Principal,
+    root : Principal,
+    targetMethod : Text,
+    title : Text,
+    summary : Text,
+    payload : Blob,
+  ) : async Result.Result<Nat, Text> {
+    let governance = switch (await snsGovernanceForRoot(root)) {
+      case (?g) g;
+      case null { return #err("no governance canister known for this SNS root") };
+    };
+    let neuronId = switch (snsProposalNeuron.get(root)) {
+      case (?n) n;
+      case null { return #err("no proposal neuron configured for this SNS") };
+    };
+    let gov : actor {
+      list_nervous_system_functions : shared () -> async Types.SnsListFunctionsResponse;
+    } = actor (governance.toText());
+    let listed = try { (await gov.list_nervous_system_functions()).functions } catch (e) {
+      return #err("could not list SNS functions: " # e.message());
+    };
+    let matches = SnsDeregister.functionsToRemove(listed, Principal.fromActor(self), [targetMethod]);
+    if (matches.size() == 0) {
+      return #err(targetMethod # " is not registered as a custom function on this SNS");
+    };
+    let functionId = matches[0].0;
+    let result = await submitSnsProposal(
+      governance,
+      neuronId,
+      title,
+      summary,
+      #ExecuteGenericNervousSystemFunction({ function_id = functionId; payload }),
+    );
+    switch (result) {
+      case (#ok(id)) {
+        log(#info, #sns, "proposed " # targetMethod # " for root " # root.toText() # " (proposal " # id.toText() # ")", ?caller);
+      };
+      case (#err(e)) {
+        log(#warn, #sns, "propose " # targetMethod # " for root " # root.toText() # " failed: " # e, ?caller);
+      };
+    };
+    result;
+  };
+
+  public shared ({ caller }) func asSnsProposeSetDepositConfig(
+    root : Principal,
+    arg : SnsSetDepositConfigArg,
+  ) : async Result.Result<Nat, Text> {
+    requireSnsAdmin(caller, root, "asSnsProposeSetDepositConfig");
+    let summary = SnsPropose.depositSummary(snsDepositConfig.get(root), arg, caller);
+    await proposeSnsConfigChange(caller, root, "snsSetDepositConfig", "Unicycle: update deposit auto-top-up config", summary, to_candid (arg));
+  };
+
+  public shared ({ caller }) func asSnsProposeSetReportConfig(
+    root : Principal,
+    arg : SnsSetReportConfigArg,
+  ) : async Result.Result<Nat, Text> {
+    requireSnsAdmin(caller, root, "asSnsProposeSetReportConfig");
+    let summary = SnsPropose.reportSummary(snsReportConfig.get(root), arg, caller);
+    await proposeSnsConfigChange(caller, root, "snsSetReportConfig", "Unicycle: update cycle report cadence", summary, to_candid (arg));
+  };
+
+  public shared ({ caller }) func asSnsProposeSetDrainAlertConfig(
+    root : Principal,
+    arg : SnsSetDrainAlertConfigArg,
+  ) : async Result.Result<Nat, Text> {
+    requireSnsAdmin(caller, root, "asSnsProposeSetDrainAlertConfig");
+    let summary = SnsPropose.drainAlertSummary(snsDrainAlertConfig.get(root), arg, caller);
+    await proposeSnsConfigChange(caller, root, "snsSetDrainAlertConfig", "Unicycle: update cycle drain alerts", summary, to_candid (arg));
   };
 
   // ---------------------------------------------------------------------------
@@ -4732,6 +4843,9 @@ persistent actor class Unicycle(
         #asSnsGetCanisterHistory : Any;
         #asSnsGetFleetSummary : Any;
         #asSnsGetTrackedCanisters : Any;
+        #asSnsProposeSetDepositConfig : Any;
+        #asSnsProposeSetDrainAlertConfig : Any;
+        #asSnsProposeSetReportConfig : Any;
         #asSnsRecordCyclesNow : Any;
         #asSnsRemoveCanister : Any;
         #asSnsSetCanisterSuspended : Any;
@@ -4850,6 +4964,8 @@ persistent actor class Unicycle(
         #deposit _ or #withdraw _ or #upsertCanister _ or #setCanisterSuspended _
         or #removeCanister _ or #asSnsUpsertCanister _
         or #asSnsSetCanisterSuspended _ or #asSnsRemoveCanister _ or #asSnsRecordCyclesNow _
+        or #asSnsProposeSetDepositConfig _ or #asSnsProposeSetReportConfig _
+        or #asSnsProposeSetDrainAlertConfig _
       ) { not caller.isAnonymous() };
 
       // Queries never reach inspect; public SNS reads / `*Validate` twins accept.

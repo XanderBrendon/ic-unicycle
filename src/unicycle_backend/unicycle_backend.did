@@ -63,6 +63,12 @@ type Unicycle =
     (opt CanisterHistory) query;
    asSnsGetFleetSummary: (root: principal) -> (vec CanisterHistory) query;
    asSnsGetTrackedCanisters: (root: principal) -> (vec TrackedCanister) query;
+   asSnsProposeSetDepositConfig: (root: principal, arg: SnsSetDepositConfigArg) ->
+    (Result_9);
+   asSnsProposeSetDrainAlertConfig: (root: principal, arg:
+    SnsSetDrainAlertConfigArg) -> (Result_9);
+   asSnsProposeSetReportConfig: (root: principal, arg: SnsSetReportConfigArg) ->
+    (Result_9);
    asSnsRecordCyclesNow: (root: principal, canisterId: principal) ->
     (Result_6);
    asSnsRemoveCanister: (root: principal, canisterId: principal) ->
