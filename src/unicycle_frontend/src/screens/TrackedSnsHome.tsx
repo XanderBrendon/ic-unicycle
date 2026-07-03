@@ -6,6 +6,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
 import { useFleet } from '../canisters/useFleet';
+import type { FleetCanister } from '../canisters/useFleet';
 import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useIcpTcRate } from '../canisters/useIcpTcRate';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
@@ -28,6 +29,13 @@ export interface TrackedSnsHomeProps {
   infoError: string | null;
   onRefreshInfo: () => void;
   onOpen: (id: Principal) => void;
+  // The user's FULL, unfiltered fleet (App's global fleet) — seeds Group Edit
+  // so canisters already tracked under a different stamp render with their real
+  // config, not as untracked (see the tracked= site below).
+  allCanisters: FleetCanister[];
+  // App's global fleet refresh — kept in sync with this page's filtered fleet
+  // after a Group Edit save.
+  onChanged: () => void;
   // Called after a successful removeTrackedSns: App refreshes the tracked
   // roots (nav) and navigates back to the Overview.
   onRemoved: () => void;
@@ -45,7 +53,8 @@ function removeSnsErrMsg(err: RemoveTrackedSnsError): string {
 }
 
 export function TrackedSnsHome({
-  identity, root, info, infoRefreshing, infoError, onRefreshInfo, onOpen, onRemoved,
+  identity, root, info, infoRefreshing, infoError, onRefreshInfo, onOpen,
+  allCanisters, onChanged, onRemoved,
 }: TrackedSnsHomeProps) {
   const rootText = root.toText();
   const filter = useCallback(
@@ -133,10 +142,14 @@ export function TrackedSnsHome({
           identity={identity}
           root={root}
           actingAs={null}
-          tracked={fleet.canisters ?? []}
+          // Seed with the user's FULL fleet, not this page's root-filtered
+          // slice: a canister already tracked under a different stamp must show
+          // its real config, else saving would silently overwrite it.
+          tracked={allCanisters}
           onClose={() => setGroupEditOpen(false)}
           onSaved={() => {
             fleet.refresh();
+            onChanged();
             setGroupEditOpen(false);
           }}
         />

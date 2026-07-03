@@ -302,6 +302,8 @@ export function App() {
                 infoError={snsInfos.errors[route.root.toText()] ?? null}
                 onRefreshInfo={() => snsInfos.refresh(route.root)}
                 onOpen={(id) => navigate({ page: 'canister', id })}
+                allCanisters={fleet.canisters ?? []}
+                onChanged={fleet.refresh}
                 onRemoved={() => {
                   refreshTrackedSns();
                   fleet.refresh();
