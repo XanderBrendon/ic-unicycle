@@ -112,6 +112,7 @@ export function SnsHome({
         <GroupEditModal
           identity={identity}
           root={root}
+          actingAs={root}
           tracked={fleet.canisters ?? []}
           onClose={() => setGroupEditOpen(false)}
           onSaved={() => {

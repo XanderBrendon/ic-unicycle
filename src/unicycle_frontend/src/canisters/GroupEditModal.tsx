@@ -78,14 +78,16 @@ function rowInvalid(r: Row): boolean {
 // actually persisted, so a retry after a partial failure converges.
 async function applyRow(
   backend: Backend,
-  root: Principal,
+  actingAs: Principal | null,
   r: Row,
 ): Promise<RowResult & { tracked: boolean; suspended: boolean }> {
   const id = r.entry.canisterId;
   if (r.state === 'untracked') {
     if (!r.tracked) return { ok: true, tracked: false, suspended: false };
     try {
-      const res = await backend.asSnsRemoveCanister(root, id);
+      const res = actingAs
+        ? await backend.asSnsRemoveCanister(actingAs, id)
+        : await backend.removeCanister(id);
       if (res.__kind__ === 'ok') return { ok: true, tracked: false, suspended: false };
       return { ok: false, error: removeErrMsg(res.err), tracked: r.tracked, suspended: r.suspended };
     } catch (e) {
@@ -109,7 +111,9 @@ async function applyRow(
     snsRoot: undefined,
   };
   try {
-    const res = await backend.asSnsUpsertCanister(root, id, config);
+    const res = actingAs
+      ? await backend.asSnsUpsertCanister(actingAs, id, config)
+      : await backend.upsertCanister(id, config);
     if (res.__kind__ !== 'ok') {
       return { ok: false, error: formatUpsertCanisterError(res.err, id).message, tracked: curTracked, suspended: curSuspended };
     }
@@ -123,7 +127,9 @@ async function applyRow(
   const wantSuspended = r.state === 'suspended';
   if (wantSuspended !== curSuspended) {
     try {
-      const res = await backend.asSnsSetCanisterSuspended(root, id, wantSuspended);
+      const res = actingAs
+        ? await backend.asSnsSetCanisterSuspended(actingAs, id, wantSuspended)
+        : await backend.setCanisterSuspended(id, wantSuspended);
       if (res.__kind__ !== 'ok') {
         return { ok: false, error: suspendErrMsg(res.err), tracked: curTracked, suspended: curSuspended };
       }
@@ -179,12 +185,17 @@ function StateToggle({ value, onChange }: { value: RowState; onChange: (v: RowSt
 export function GroupEditModal({
   identity,
   root,
+  actingAs,
   tracked,
   onClose,
   onSaved,
 }: {
   identity: Identity;
+  // Where the canister list comes from (list_sns_canisters on this root).
   root: Principal;
+  // Who the mutations act as: an SNS root (asSns* twins) or null for the
+  // signed-in user's own tracking (plain upsert/suspend/remove).
+  actingAs: Principal | null;
   tracked: FleetCanister[];
   onClose: () => void;
   onSaved: () => void;
@@ -241,7 +252,7 @@ export function GroupEditModal({
     const persisted: Record<string, { tracked: boolean; suspended: boolean }> = {};
     let anyFail = false;
     for (const r of rows) {
-      const res = await applyRow(backend, root, r);
+      const res = await applyRow(backend, actingAs, r);
       persisted[r.idText] = { tracked: res.tracked, suspended: res.suspended };
       next[r.idText] = res.ok ? { ok: true } : { ok: false, error: res.error };
       if (!res.ok) anyFail = true;

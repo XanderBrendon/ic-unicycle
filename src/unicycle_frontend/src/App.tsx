@@ -16,6 +16,7 @@ import { CanisterDetail } from './screens/CanisterDetail';
 import { Wallet } from './screens/Wallet';
 import { Admin } from './screens/Admin';
 import { SnsHome } from './screens/SnsHome';
+import { TrackedSnsHome } from './screens/TrackedSnsHome';
 import { AddCanisterModal } from './canisters/CanisterModals';
 import { AddSnsModal } from './sns/AddSnsModal';
 import { useHashRoute, type Page, type Route } from './router';
@@ -288,7 +289,21 @@ export function App() {
                 onChanged={() => {}}
               />
             ) : route.page === 'trackedSns' ? (
-              <div className="faint">Tracked SNS page (Task 9)</div>
+              <TrackedSnsHome
+                key={`tracked:${route.root.toText()}`}
+                identity={identity}
+                root={route.root}
+                info={snsInfos.infos[route.root.toText()]}
+                infoRefreshing={snsInfos.refreshing[route.root.toText()] ?? false}
+                infoError={snsInfos.errors[route.root.toText()] ?? null}
+                onRefreshInfo={() => snsInfos.refresh(route.root)}
+                onOpen={(id) => navigate({ page: 'canister', id })}
+                onRemoved={() => {
+                  refreshTrackedSns();
+                  fleet.refresh();
+                  navigate({ page: 'overview' });
+                }}
+              />
             ) : route.page === 'blackholed' ? (
               <div className="faint">Blackholed page (Task 10)</div>
             ) : null}
