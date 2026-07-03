@@ -36,14 +36,7 @@ import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
-import Migration "migration";
 
-// ONE-SHOT: this migration drops the previously-stable `snsFunctionSpecs`. It
-// MUST be removed (this line + `import Migration` + `migration.mo`) once it has
-// been applied by a deploy — leaving it attached makes the *next* upgrade fail
-// (M0169: the prior version no longer has `snsFunctionSpecs`). On a fresh
-// install it is a no-op. See migration.mo.
-(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -3613,9 +3606,9 @@ persistent actor class Unicycle(
   // append their config twins here as they land). `snsSetup` itself is NOT in
   // this list — it is the manually-registered bootstrap and must not
   // re-register itself.
-  // `transient` (not persisted): a compile-time constant that must re-evaluate
-  // from source on every upgrade. The one-time `migration.mo` drops the stale
-  // stable copy left by earlier versions (Motoko forbids implicit drop, M0169).
+  // `transient` (not persisted): a compile-time constant that re-evaluates from
+  // source on every upgrade, so registry edits always take effect. (An earlier
+  // version wrongly persisted it; a one-time migration dropped that stale copy.)
   transient let snsFunctionSpecs : [Types.SnsFunctionSpec] = [
     { name = "Unicycle: Withdraw"; description = "Withdraw ICP/tcycles from the SNS's Unicycle subaccount."; target = "snsWithdraw"; validator = "snsWithdrawValidate" },
     { name = "Unicycle: Track Canister"; description = "Register or update a tracked canister's top-up config."; target = "snsUpsertCanister"; validator = "snsUpsertCanisterValidate" },
