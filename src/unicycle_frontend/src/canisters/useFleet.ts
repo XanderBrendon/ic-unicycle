@@ -35,6 +35,7 @@ export interface FleetCanister {
   name: string | null; // config.nickname, or null when unnamed
   label: string; // name ?? truncated id
   config: CanisterConfig;
+  snsRoot: Principal | null; // tracked-SNS stamp; null = blackhole-verified
   min: bigint;
   topup: bigint;
   suspended: boolean;
@@ -151,6 +152,7 @@ function buildCanister(
     name,
     label: name ?? fmtPid(idText),
     config,
+    snsRoot: config.snsRoot ?? null,
     min: config.minCycleBalance,
     topup: config.cycleTopUpAmount,
     suspended,
@@ -174,7 +176,15 @@ function dailyBurn(canisters: FleetCanister[]): number {
   return total;
 }
 
-export function useFleet(identity: Identity | null, actingAs?: Principal | null): Fleet {
+export function useFleet(
+  identity: Identity | null,
+  actingAs?: Principal | null,
+  // Optional summary filter (e.g. one tracked SNS's canisters, or blackholed
+  // only). Applied before derivation so counts/activity/volumes reflect the
+  // filtered set. MUST be referentially stable (useMemo/useCallback) — it is
+  // a dependency of the derivation memo.
+  filter?: (h: CanisterHistory) => boolean,
+): Fleet {
   const [summaries, setSummaries] = useState<CanisterHistory[] | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -225,8 +235,9 @@ export function useFleet(identity: Identity | null, actingAs?: Principal | null)
         toppedUp14dCycles: 0n,
       };
     }
+    const source = filter ? summaries.filter(filter) : summaries;
     const nowMs = Date.now();
-    const canisters = summaries.map((h) => buildCanister(h.config, h, h.canisterId, nowMs));
+    const canisters = source.map((h) => buildCanister(h.config, h, h.canisterId, nowMs));
 
     const counts = { ...EMPTY_COUNTS } as FleetCounts;
     for (const c of canisters) {
@@ -276,7 +287,7 @@ export function useFleet(identity: Identity | null, actingAs?: Principal | null)
       toppedUp7dCycles,
       toppedUp14dCycles,
     };
-  }, [summaries]);
+  }, [summaries, filter]);
 
   return {
     ...derived,
