@@ -9,6 +9,9 @@ import List "mo:core/List";
 //   * mergeConfig preserves the prior suspendedUntil and discards the incoming one
 //     (setCanisterSuspended is the only path that mutates suspension), and takes
 //     the incoming nickname (upsertCanister is the only path that sets the label).
+//   * mergeConfig preserves the prior snsRoot too (discarding the incoming one);
+//     upsertCanisterFor's verification outcome then overrides it, making that
+//     verification the only effective writer of the stamp.
 module {
   public type TopUpDecision = { #remove; #topUp : Nat; #skip };
 

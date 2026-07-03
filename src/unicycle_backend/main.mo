@@ -2274,34 +2274,46 @@ persistent actor class Unicycle(
   };
 
   func checkCanister(owner : Principal, canisterId : Principal) : async () {
-    let cyclesOpt = if (isKnownSnsRoot(owner)) {
-      switch (await snsRootCycles(owner)) {
-        case (#ok pairs) {
-          switch (findCycles(pairs, canisterId)) {
-            case (?cycles) { recordReading(canisterId, #ok(cycles)); ?cycles };
-            case null {
-              recordReading(canisterId, #err("not found in SNS canisters summary"));
+    // Same routing rule as runCycleSweep: owner-is-root or a stamped entry
+    // reads via the SNS root summary; only genuinely blackholed entries go to
+    // the blackhole.
+    let routeRoot : ?Principal = if (isKnownSnsRoot(owner)) { ?owner } else {
+      switch (configFor(owner, canisterId)) {
+        case (?cfg) { cfg.snsRoot };
+        case null { null };
+      };
+    };
+    let cyclesOpt = switch (routeRoot) {
+      case (?root) {
+        switch (await snsRootCycles(root)) {
+          case (#ok pairs) {
+            switch (findCycles(pairs, canisterId)) {
+              case (?cycles) { recordReading(canisterId, #ok(cycles)); ?cycles };
+              case null {
+                recordReading(canisterId, #err("not found in SNS canisters summary"));
+                null;
+              };
+            };
+          };
+          case (#err msg) { recordReading(canisterId, #err(msg)); null };
+        };
+      };
+      case null {
+        try {
+          switch (await blackhole().canisterStatus(canisterId)) {
+            case (#ok status) {
+              recordReading(canisterId, #ok(status.cycles));
+              ?status.cycles;
+            };
+            case (#err msg) {
+              recordReading(canisterId, #err(msg));
               null;
             };
           };
+        } catch (e) {
+          recordReading(canisterId, #err("blackhole unreachable: " # e.message()));
+          null;
         };
-        case (#err msg) { recordReading(canisterId, #err(msg)); null };
-      };
-    } else {
-      try {
-        switch (await blackhole().canisterStatus(canisterId)) {
-          case (#ok status) {
-            recordReading(canisterId, #ok(status.cycles));
-            ?status.cycles;
-          };
-          case (#err msg) {
-            recordReading(canisterId, #err(msg));
-            null;
-          };
-        };
-      } catch (e) {
-        recordReading(canisterId, #err("blackhole unreachable: " # e.message()));
-        null;
       };
     };
     switch (cyclesOpt) {
@@ -2379,26 +2391,40 @@ persistent actor class Unicycle(
   };
 
   func runCycleSweep() : async () {
-    // Per unique tracked canister, find the SNS root that owns it (if any).
-    // SNS-controlled entries store the root as `owner`: route their reads
-    // through the root summary, everyone else through the blackhole batch. One
-    // reading per canister per firing, regardless of how many owners track it.
+    // Route each unique tracked canister to a reading source, three ways:
+    // owner-is-root reads via that root's summary (SNS-controlled entries store
+    // the root as `owner`); a plain user's entry stamped `config.snsRoot == ?r`
+    // reads via root `r`'s summary (such stamped canisters have NO blackhole
+    // controller — the blackhole batch would only record errors for them);
+    // everything else reads via the blackhole batch. When several owners track
+    // the same canister, the SNS route wins over blackhole (the blackhole read
+    // would fail anyway; the root summary serves every entry's classification).
+    // One reading per canister per firing, regardless of how many owners track it.
     let roots = Set.empty<Principal>();
     for (r in snsRootByGovernance.values()) { roots.add(r) };
 
-    let seen = Set.empty<Principal>();
-    let blackholeIds = List.empty<Principal>();
-    let snsCanisterRoot = Map.empty<Principal, Principal>(); // canisterId → owning root
+    let routeByCanister = Map.empty<Principal, ?Principal>(); // canisterId → ?root (null = blackhole)
     for ((owner, userMap) in tracked.entries()) {
       let ownerIsRoot = roots.contains(owner);
-      for ((canisterId, _cfg) in userMap.entries()) {
-        if (not seen.contains(canisterId)) {
-          seen.add(canisterId);
-          if (ownerIsRoot) { snsCanisterRoot.add(canisterId, owner) } else { blackholeIds.add(canisterId) };
+      for ((canisterId, cfg) in userMap.entries()) {
+        let routeRoot : ?Principal = if (ownerIsRoot) { ?owner } else { cfg.snsRoot };
+        switch (routeByCanister.get(canisterId), routeRoot) {
+          case (null, _) { routeByCanister.add(canisterId, routeRoot) };
+          case (?null, ?r) { routeByCanister.add(canisterId, ?r) }; // upgrade blackhole → SNS
+          case _ {};
         };
       };
     };
-    if (seen.size() == 0) return;
+    if (routeByCanister.size() == 0) return;
+
+    let blackholeIds = List.empty<Principal>();
+    let snsCanisterRoot = Map.empty<Principal, Principal>(); // canisterId → root to read via
+    for ((canisterId, route) in routeByCanister.entries()) {
+      switch (route) {
+        case (?r) { snsCanisterRoot.add(canisterId, r) };
+        case null { blackholeIds.add(canisterId) };
+      };
+    };
 
     // One reading per canister; the top-up snapshot below reads from this.
     let readingByCanister = Map.empty<Principal, Nat>();
@@ -3108,6 +3134,11 @@ persistent actor class Unicycle(
   // `canisterId` — the upsert fallback when the blackhole probe fails. A root
   // that traps or is unreachable is treated as no-match, not fatal: the user
   // sees the combined not-verifiable error and can retry.
+  //
+  // A concurrent removeTrackedSns can commit between this function's awaits, so
+  // a just-verified stamp can reference a root the user no longer tracks. This
+  // is benign: the money is the user's own, the entry is removable via
+  // removeCanister, and the next re-upsert re-verifies (refreshing the stamp).
   func trackedSnsMatch(owner : Principal, canisterId : Principal) : async ?Principal {
     let roots = switch (userTrackedSnsRoots.get(owner)) {
       case null { return null };

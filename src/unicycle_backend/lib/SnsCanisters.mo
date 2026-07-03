@@ -5,7 +5,11 @@ import List "mo:core/List";
 // (user-tracked SNS verification — see upsertCanisterFor's fallback).
 module {
   // Every canister id in the response: singletons (root, governance, ledger,
-  // swap, index), then dapps, archives, and extension canisters.
+  // swap, index), then dapps and archives. Extension canisters are
+  // deliberately excluded (they are not even typed on the response): the
+  // reading path (`get_sns_canisters_summary`) has no extensions slot, so an
+  // extension canister could be verified but never read/topped up — keeping
+  // the verification surface equal to the reading surface.
   public func ids(res : Types.SnsListCanistersResponse) : [Principal] {
     let acc = List.empty<Principal>();
     for (opt in [res.root, res.governance, res.ledger, res.swap, res.index].vals()) {
@@ -13,10 +17,6 @@ module {
     };
     for (p in res.dapps.vals()) { acc.add(p) };
     for (p in res.archives.vals()) { acc.add(p) };
-    switch (res.extensions) {
-      case (?e) { for (p in e.extension_canister_ids.vals()) { acc.add(p) } };
-      case null {};
-    };
     acc.toArray();
   };
 

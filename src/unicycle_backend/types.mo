@@ -102,8 +102,11 @@ module {
 
   // SNS root `list_sns_canisters` response — a query twin of the summary the
   // upsert verification already reads, listing ids regardless of status. Only
-  // fields we read are typed; Candid record subtyping drops any extras.
-  // `extensions` is absent on older roots and decodes as null.
+  // fields we read are typed; Candid record subtyping drops any extras. The
+  // `extensions` slot is deliberately NOT typed here: the reading path
+  // (`get_sns_canisters_summary` via `snsRootCycles`) has no extensions slot,
+  // so an extension canister can never be read/topped up — dropping it keeps
+  // the verification surface equal to the reading surface.
   public type SnsListCanistersResponse = {
     root : ?Principal;
     governance : ?Principal;
@@ -112,7 +115,6 @@ module {
     index : ?Principal;
     dapps : [Principal];
     archives : [Principal];
-    extensions : ?{ extension_canister_ids : [Principal] };
   };
 
   public type SnsMotion = { motion_text : Text };
