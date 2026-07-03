@@ -17,8 +17,21 @@ module {
   //
   //   * ADDING A FIELD: make it OPTIONAL (`?T`). An added `?T` field is
   //     upgrade-compatible and needs no migration code — old values read back as
-  //     `null`. This is the default for every new field on a stored record
-  //     (the pattern `CanisterConfig.nickname` already uses). DO THIS.
+  //     `null` — BUT ONLY when the record sits in an IMMUTABLE position. A
+  //     record stored inside a `mo:core` Map/Set holds its values in the node's
+  //     mutable (`var`) arrays — an INVARIANT position, where ANY shape change,
+  //     including an additive `?T`, still traps at install (M0170). Such a record
+  //     needs an explicit `(with migration = …)` even for an optional add. This is
+  //     the default for a new field on a stored record in an immutable position
+  //     (the pattern `CanisterConfig.nickname` already uses). DO THIS — but see
+  //     the map-embedded caveat below.
+  //
+  //   * ADDING A FIELD to a record stored inside a `mo:core` Map/Set (invariant
+  //     position): NOT upgrade-compatible even when optional — it TRAPS (M0170)
+  //     like a non-optional add. Ship it with an explicit `(with migration = …)`.
+  //     Precedent: `CanisterConfig.snsRoot` — `CanisterConfig` lives inside
+  //     `tracked : Map<…, Map<…, CanisterConfig>>`, so its additive optional
+  //     `snsRoot` needed `Migration.run` (see migration.mo).
   //
   //   * NON-OPTIONAL field add, type change, field rename/removal, or changing a
   //     variant tag's payload: these are NOT upgrade-compatible. The upgrade
