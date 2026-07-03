@@ -236,6 +236,18 @@ module {
     #topUpInFlight;
   };
 
+  public type AddTrackedSnsError = {
+    #anonymous;
+    #notAnSnsRoot;
+    #alreadyTracked;
+    #limitReached : { maxTrackedSns : Nat };
+  };
+
+  public type RemoveTrackedSnsError = {
+    #anonymous;
+    #topUpInFlight;
+  };
+
   public type TrackedCanister = {
     canisterId : Principal;
     config : CanisterConfig;

@@ -58,6 +58,8 @@ persistent actor class Unicycle(
   public type RecordCyclesError = Types.RecordCyclesError;
   public type SuspendCanisterError = Types.SuspendCanisterError;
   public type RemoveCanisterError = Types.RemoveCanisterError;
+  public type AddTrackedSnsError = Types.AddTrackedSnsError;
+  public type RemoveTrackedSnsError = Types.RemoveTrackedSnsError;
   public type AdminRemoveCanisterError = Types.AdminRemoveCanisterError;
   public type TrackedCanister = Types.TrackedCanister;
   public type CycleReading = Types.CycleReading;
@@ -402,6 +404,17 @@ persistent actor class Unicycle(
   // a new config can alert on the next check. Persisted but cheap to lose.
   let snsDrainAlertConfig : Map.Map<Principal, SnsSetDrainAlertConfigArg> = Map.empty();
   let snsLastDrainAlertProposal : Map.Map<Principal, Nat> = Map.empty();   // root → ns timestamp of last alert
+
+  // User-tracked SNSes (middle-ground funding): user principal → set of SNS
+  // roots the user has chosen to help fund from their OWN deposit subaccount.
+  // The canisters themselves live in `tracked[user]` stamped with
+  // `config.snsRoot` — this map only drives the nav, the upsert verification
+  // fallback, and the cascade on removeTrackedSns. Persisted like `tracked`.
+  let userTrackedSnsRoots : Map.Map<Principal, Set.Set<Principal>> = Map.empty();
+
+  // Hard per-user cap on tracked SNSes: bounds the number of outbound
+  // list_sns_canisters calls one upsert fallback can trigger.
+  let MAX_TRACKED_SNS_PER_USER : Nat = 16;
 
   // Tracked-canister registry: per-caller map of canister id → config. Persists
   // across upgrades via the persistent actor default.
@@ -3324,6 +3337,79 @@ persistent actor class Unicycle(
       .toArray();
   };
 
+  // ---------------------------------------------------------------------------
+  // User-tracked SNSes: a signed-in user picks SNSes to help fund from their
+  // own deposit subaccount. Tracking an SNS only creates the association (and
+  // the frontend nav page); canisters are added one-by-one through the normal
+  // upsertCanister path, which falls back to these roots when the blackhole
+  // probe fails.
+  // ---------------------------------------------------------------------------
+
+  public shared ({ caller }) func addTrackedSns(root : Principal) : async Result.Result<(), AddTrackedSnsError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    // Known-root check with the same throttled live refresh resolveSnsRoot
+    // uses, so a newly launched SNS resolves on first use.
+    if (not isKnownSnsRoot(root)) {
+      let now = Int.abs(Time.now());
+      if (now >= lastSnsRefreshNs + SNS_REFRESH_MIN_INTERVAL_NS) {
+        lastSnsRefreshNs := now;
+        await refreshSnsRegistry();
+      };
+      if (not isKnownSnsRoot(root)) return #err(#notAnSnsRoot);
+    };
+    // (Re-)read after the potential await — the set may have changed mid-call.
+    let set = switch (userTrackedSnsRoots.get(caller)) {
+      case (?s) s;
+      case null {
+        let fresh = Set.empty<Principal>();
+        userTrackedSnsRoots.add(caller, fresh);
+        fresh;
+      };
+    };
+    if (set.contains(root)) return #err(#alreadyTracked);
+    if (set.size() >= MAX_TRACKED_SNS_PER_USER) {
+      return #err(#limitReached { maxTrackedSns = MAX_TRACKED_SNS_PER_USER });
+    };
+    set.add(root);
+    log(#info, #sns, "addTrackedSns " # root.toText(), ?caller);
+    #ok();
+  };
+
+  // Cascade removal: drops the root from the caller's set AND every tracked
+  // entry the caller stamped with it (via removeTrackedEntry, so top-up
+  // history and shared readings are cleaned like a normal removal). Refuses
+  // the whole call if any affected canister has a top-up in flight — mirrors
+  // removeCanister; the caller retries when the saga settles. Returns the
+  // number of canisters untracked; removing an untracked root is a 0 no-op.
+  public shared ({ caller }) func removeTrackedSns(root : Principal) : async Result.Result<Nat, RemoveTrackedSnsError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    let set = switch (userTrackedSnsRoots.get(caller)) {
+      case null { return #ok(0) };
+      case (?s) s;
+    };
+    if (not set.contains(root)) return #ok(0);
+    let stamped = switch (tracked.get(caller)) {
+      case null { [] };
+      case (?userMap) { Tracking.stampedWith(userMap.entries().toArray(), root) };
+    };
+    for (canisterId in stamped.vals()) {
+      if (inFlightContains(caller, canisterId)) return #err(#topUpInFlight);
+    };
+    for (canisterId in stamped.vals()) { removeTrackedEntry(caller, canisterId) };
+    ignore set.delete(root);
+    if (set.size() == 0) { ignore userTrackedSnsRoots.delete(caller) };
+    log(#info, #sns, "removeTrackedSns " # root.toText() # " (untracked " # stamped.size().toText() # " canisters)", ?caller);
+    #ok(stamped.size());
+  };
+
+  public shared query ({ caller }) func getMyTrackedSnsRoots() : async [Principal] {
+    if (caller.isAnonymous()) return [];
+    switch (userTrackedSnsRoots.get(caller)) {
+      case null { [] };
+      case (?s) { s.values().toArray() };
+    };
+  };
+
   // Act-on-behalf family (US27): each authorizes `caller ∈ snsAdmins[root]` via
   // `requireSnsAdmin` (which *traps* on failure, before any await) then delegates
   // to the existing `*For(root, …)` helper, returning its Result unchanged. The
@@ -4821,6 +4907,7 @@ persistent actor class Unicycle(
       // (queries never reach inspect; the `get*` / `*Validate` reads are public).
       msg : {
         #addAdmin : Any;
+        #addTrackedSns : Any;
         #adminFundLpPosition : Any;
         #adminGetLogs : Any;
         #adminGetLoyaltyInfo : Any;
@@ -4865,6 +4952,7 @@ persistent actor class Unicycle(
         #getMyBalanceHistory : Any;
         #getMyLoyaltyStatus : Any;
         #getMySnsAdminRoots : Any;
+        #getMyTrackedSnsRoots : Any;
         #getPrimaryAdmin : Any;
         #getSnsAdmins : Any;
         #getSnsDepositAccount : Any;
@@ -4879,6 +4967,7 @@ persistent actor class Unicycle(
         #recordCyclesNow : () -> Principal; // arg decoded for the rate pre-check below
         #removeAdmin : Any;
         #removeCanister : Any;
+        #removeTrackedSns : Any;
         #setBlackholeCanister : Any;
         #setCanisterSuspended : Any;
         #setIcpSwapPool : Any;
@@ -4963,7 +5052,7 @@ persistent actor class Unicycle(
       // Authenticated user methods: reject the anonymous principal.
       case (
         #deposit _ or #withdraw _ or #upsertCanister _ or #setCanisterSuspended _
-        or #removeCanister _ or #asSnsUpsertCanister _
+        or #removeCanister _ or #addTrackedSns _ or #removeTrackedSns _ or #asSnsUpsertCanister _
         or #asSnsSetCanisterSuspended _ or #asSnsRemoveCanister _ or #asSnsRecordCyclesNow _
         or #asSnsProposeSetDepositConfig _ or #asSnsProposeSetReportConfig _
         or #asSnsProposeSetDrainAlertConfig _
