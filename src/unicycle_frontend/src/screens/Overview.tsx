@@ -22,9 +22,9 @@ import {
   type Status,
 } from '../ui/format';
 import { useNow } from '../ui/now';
-import { useDepositBalances } from '../wallet/useDepositBalances';
+import { useDepositBalances, type DepositBalances } from '../wallet/useDepositBalances';
 import { useBalanceHistory, reconstructSeries, type BalancePoint } from '../wallet/useBalanceHistory';
-import { useIcpTcRate } from '../canisters/useIcpTcRate';
+import { useIcpTcRate, type IcpTcRate } from '../canisters/useIcpTcRate';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { Token, type BalanceEvent } from '../bindings/unicycle_backend/unicycle_backend';
 import type { Fleet, FleetActivityItem, FleetCanister } from '../canisters/useFleet';
@@ -413,7 +413,7 @@ function FleetTable({
 }
 
 /* ---------------- pre-resolve loading state ---------------- */
-function OverviewLoading() {
+export function OverviewLoading() {
   return (
     <div style={{ display: 'grid', placeItems: 'center', minHeight: '70vh' }}>
       <Empty icon="canisters" title="Loading fleet…">Fetching your tracked canisters.</Empty>
@@ -422,7 +422,7 @@ function OverviewLoading() {
 }
 
 /* ---------------- empty state (no tracked canisters) ---------------- */
-function OverviewEmpty({ onAdd }: { onAdd: () => void }) {
+export function OverviewEmpty({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="fade-up" style={{ display: 'grid', placeItems: 'center', minHeight: '70vh', textAlign: 'center' }}>
       <div style={{ width: 380, maxWidth: '100%' }}>
@@ -458,50 +458,13 @@ function OverviewEmpty({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-/* ---------------- Dashboard ---------------- */
-export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
-  const deposit = useDepositBalances(identity);
-  const rate = useIcpTcRate(identity);
-  const balHist = useBalanceHistory(identity);
-  const schedule = useTimerSchedule(identity);
-  const now = useNow();
-  const [sort, setSort] = useState<SortState>({ key: 'risk', dir: 'asc' });
-  const [filter, setFilter] = useState<Status | null>(null);
-  const [q, setQ] = useState('');
-
-  const onSort = (k: SortKey) =>
-    setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' }));
-
-  const canisters = fleet.canisters ?? [];
-
-  const rows = useMemo(() => {
-    let r = filter ? canisters.filter((c) => c.status === filter) : canisters;
-    const query = q.trim().toLowerCase();
-    if (query) r = r.filter((c) => c.label.toLowerCase().includes(query) || c.idText.toLowerCase().includes(query));
-    const dir = sort.dir === 'asc' ? 1 : -1;
-    const num = (c: FleetCanister): number =>
-      sort.key === 'health'
-        ? healthRatio(c)
-        : sort.key === 'cur'
-          ? c.cur === null
-            ? -1
-            : Number(c.cur)
-          : sort.key === 'min'
-            ? Number(c.min)
-            : sort.key === 'topup'
-              ? Number(c.topup)
-              : sort.key === 'last'
-                ? c.lastReadingMs ?? 0
-                : STATUS_ORDER[c.status];
-    return [...r].sort((a, b) => {
-      if (sort.key === 'risk') {
-        return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || healthRatio(a) - healthRatio(b);
-      }
-      if (sort.key === 'name') return a.label.localeCompare(b.label) * dir;
-      return (num(a) - num(b)) * dir;
-    });
-  }, [canisters, sort, filter, q]);
-
+/* ---------------- KPI strip ---------------- */
+export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
+  fleet: Fleet;
+  deposit: DepositBalances;
+  rate: IcpTcRate;
+  historyEvents: BalanceEvent[] | null; // null → runway chart renders without history
+}) {
   const nowMs = Date.now();
   const depositTC = deposit.balances.TCYCLES;
   const depositICP = deposit.balances.ICP;
@@ -542,11 +505,216 @@ export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
         : `depletes ${fmtDate(nowMs + runwayDays * DAY_MS)}`;
   const runwayBalanceTC = tcEquivNum ?? (depositTC === null ? 0 : toTC(depositTC));
   const runwayHistory =
-    balHist.events && depositTC !== null
-      ? historyTcEquiv(balHist.events, depositTC, depositICP, cyclesPerE8s, nowMs)
+    historyEvents && depositTC !== null
+      ? historyTcEquiv(historyEvents, depositTC, depositICP, cyclesPerE8s, nowMs)
       : undefined;
 
   const c = fleet.counts;
+  return (
+    <div className="panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', overflow: 'hidden' }}>
+      <TripleCell
+        label="Deposit balance"
+        icon={<Icon name="wallet" size={12} />}
+        stats={[
+          { value: <TC raw={depositTC} />, caption: 'TC' },
+          { value: fmtICP(depositICP, 2), caption: 'ICP' },
+          { value: tcEquivNum === null ? '—' : fmtTC(tcEquivNum), caption: '≈ TC total', color: 'var(--accent-ink)' },
+        ]}
+        sub={<><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
+      >
+        <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
+          ICP→TC rate is based on the current swap price and may change unpredictably.
+        </div>
+      </TripleCell>
+      <KpiCell
+        label="Deposit runway"
+        value={runwayValue}
+        unit="days"
+        accent
+        sub={runwaySub}
+        icon={<Icon name="flame" size={12} style={{ color: 'var(--accent-ink)' }} />}
+      >
+        <div style={{ marginTop: 2, position: 'relative' }}>
+          <AreaChart balance={runwayBalanceTC} burnPerDay={burnTCPerDay} history={runwayHistory} nowMs={nowMs} w={170} h={42} />
+        </div>
+        <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
+          Estimates based on recent usage and conversion rates.
+        </div>
+      </KpiCell>
+      <TripleCell
+        label="Upcoming top ups"
+        icon={<Icon name="shield" size={12} />}
+        stats={[
+          { value: c.crit, caption: 'now', color: 'var(--crit)' },
+          { value: c.warn, caption: '1–3 days', color: 'var(--warn)' },
+          { value: c.upcoming, caption: '4–7 days', color: 'var(--accent-ink)' },
+        ]}
+        sub={`${c.later} not due in 7 days`}
+      />
+      <TripleCell
+        label="Topped up"
+        icon={<Icon name="bolt" size={12} />}
+        last
+        stats={[
+          { value: <TC raw={fleet.toppedUp24Cycles} />, caption: '24h' },
+          { value: <TC raw={fleet.toppedUp7dCycles} />, caption: '7d' },
+          { value: <TC raw={fleet.toppedUp14dCycles} />, caption: '14d' },
+        ]}
+      >
+        <div style={{ marginTop: 'auto', paddingTop: 4 }}>
+          <div className="faint mono" style={{ fontSize: 9.5, marginBottom: 3, letterSpacing: '0.04em' }}>
+            14-DAY VOLUME · TC
+          </div>
+          <MiniBars
+            data={fleet.volume14}
+            h={28}
+            tip={(v, i) => `${fmtTC(v)} TC · ${fmtDate(nowMs - (13 - i) * DAY_MS)}`}
+          />
+        </div>
+      </TripleCell>
+    </div>
+  );
+}
+
+/* ---------------- fleet dashboard ---------------- */
+export function FleetDashboard({ fleet, onOpen, onAdd, schedule }: {
+  fleet: Fleet;
+  onOpen: (id: Principal) => void;
+  onAdd: () => void;
+  schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null on the SNS page
+}) {
+  const now = useNow();
+  const [sort, setSort] = useState<SortState>({ key: 'risk', dir: 'asc' });
+  const [filter, setFilter] = useState<Status | null>(null);
+  const [q, setQ] = useState('');
+
+  const onSort = (k: SortKey) =>
+    setSort((s) => (s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' }));
+
+  const canisters = fleet.canisters ?? [];
+
+  const rows = useMemo(() => {
+    let r = filter ? canisters.filter((c) => c.status === filter) : canisters;
+    const query = q.trim().toLowerCase();
+    if (query) r = r.filter((c) => c.label.toLowerCase().includes(query) || c.idText.toLowerCase().includes(query));
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const num = (c: FleetCanister): number =>
+      sort.key === 'health'
+        ? healthRatio(c)
+        : sort.key === 'cur'
+          ? c.cur === null
+            ? -1
+            : Number(c.cur)
+          : sort.key === 'min'
+            ? Number(c.min)
+            : sort.key === 'topup'
+              ? Number(c.topup)
+              : sort.key === 'last'
+                ? c.lastReadingMs ?? 0
+                : STATUS_ORDER[c.status];
+    return [...r].sort((a, b) => {
+      if (sort.key === 'risk') {
+        return STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || healthRatio(a) - healthRatio(b);
+      }
+      if (sort.key === 'name') return a.label.localeCompare(b.label) * dir;
+      return (num(a) - num(b)) * dir;
+    });
+  }, [canisters, sort, filter, q]);
+
+  const c = fleet.counts;
+  return (
+    <div className="grid" style={{ gridTemplateColumns: '1fr 340px', alignItems: 'start' }}>
+      <Panel
+        flush
+        title="Fleet"
+        eyebrow={filter ? `// filtered · ${STATUS_LABEL[filter].toLowerCase()}` : `// ${c.total} tracked canisters`}
+        actions={
+          <>
+            {schedule && schedule.nextCheckMs !== null && (
+              <span className="faint mono" style={{ fontSize: 11 }} title="Estimated next automatic cycle check across the fleet">
+                next check ~{fmtUntil(schedule.nextCheckMs, now)}
+              </span>
+            )}
+            <button
+              className="btn ghost sm"
+              onClick={() => {
+                fleet.refresh();
+                schedule?.refresh();
+              }}
+              disabled={fleet.loading}
+              title="Refresh fleet"
+            >
+              <Icon name="refresh" size={14} />
+            </button>
+            <button className="btn accent sm" onClick={onAdd}>
+              <Icon name="plus" size={14} />
+              Track canister
+            </button>
+          </>
+        }
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '10px var(--pad)',
+            borderBottom: '1px solid var(--border)',
+            flexWrap: 'wrap',
+          }}
+        >
+          <StatusLegend counts={c} active={filter} onPick={setFilter} />
+          <div className="input-suffix" style={{ marginLeft: 'auto', width: 218 }}>
+            <input
+              className="input mono"
+              placeholder="search name or id…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              style={{ height: 30, paddingRight: 28 }}
+            />
+            <Icon name="search" size={13} className="sfx" style={{ pointerEvents: 'none' }} />
+          </div>
+        </div>
+        {fleet.loading && canisters.length === 0 ? (
+          <Empty icon="canisters" title="Loading fleet…">Fetching your tracked canisters.</Empty>
+        ) : fleet.error ? (
+          <Empty icon="x" title="Couldn’t load fleet">{fleet.error}</Empty>
+        ) : rows.length === 0 ? (
+          <Empty icon="canisters" title="Nothing here">
+            {canisters.length === 0
+              ? 'No canisters tracked yet. Use “Track canister” to add one.'
+              : q
+                ? 'No canisters match your search.'
+                : 'No canisters match this filter.'}
+          </Empty>
+        ) : (
+          <FleetTable fleet={rows} onOpen={onOpen} sort={sort} onSort={onSort} />
+        )}
+      </Panel>
+      <Panel
+        flush
+        title="Activity"
+        eyebrow="// top-up stream"
+        actions={
+          fleet.fetchedAt !== null && (
+            <span className="faint mono" style={{ fontSize: 11 }} title={fmtDateTime(fleet.fetchedAt)}>
+              as of {fmtAgo(fleet.fetchedAt, now)}
+            </span>
+          )
+        }
+      >
+        <ActivityFeed activity={fleet.activity} limit={9} />
+      </Panel>
+    </div>
+  );
+}
+
+/* ---------------- Dashboard ---------------- */
+export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
+  const deposit = useDepositBalances(identity);
+  const rate = useIcpTcRate(identity);
+  const balHist = useBalanceHistory(identity);
+  const schedule = useTimerSchedule(identity);
 
   // Until the first fleet response resolves we don't yet know whether the user
   // has any canisters, so show a neutral loading state rather than the full
@@ -564,154 +732,8 @@ export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
 
   return (
     <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
-      {/* KPI strip */}
-      <div className="panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', overflow: 'hidden' }}>
-        <TripleCell
-          label="Deposit balance"
-          icon={<Icon name="wallet" size={12} />}
-          stats={[
-            { value: <TC raw={depositTC} />, caption: 'TC' },
-            { value: fmtICP(depositICP, 2), caption: 'ICP' },
-            { value: tcEquivNum === null ? '—' : fmtTC(tcEquivNum), caption: '≈ TC total', color: 'var(--accent-ink)' },
-          ]}
-          sub={<><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
-        >
-          <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
-            ICP→TC rate is based on the current swap price and may change unpredictably.
-          </div>
-        </TripleCell>
-        <KpiCell
-          label="Deposit runway"
-          value={runwayValue}
-          unit="days"
-          accent
-          sub={runwaySub}
-          icon={<Icon name="flame" size={12} style={{ color: 'var(--accent-ink)' }} />}
-        >
-          <div style={{ marginTop: 2, position: 'relative' }}>
-            <AreaChart balance={runwayBalanceTC} burnPerDay={burnTCPerDay} history={runwayHistory} nowMs={nowMs} w={170} h={42} />
-          </div>
-          <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
-            Estimates based on recent usage and conversion rates.
-          </div>
-        </KpiCell>
-        <TripleCell
-          label="Upcoming top ups"
-          icon={<Icon name="shield" size={12} />}
-          stats={[
-            { value: c.crit, caption: 'now', color: 'var(--crit)' },
-            { value: c.warn, caption: '1–3 days', color: 'var(--warn)' },
-            { value: c.upcoming, caption: '4–7 days', color: 'var(--accent-ink)' },
-          ]}
-          sub={`${c.later} not due in 7 days`}
-        />
-        <TripleCell
-          label="Topped up"
-          icon={<Icon name="bolt" size={12} />}
-          last
-          stats={[
-            { value: <TC raw={fleet.toppedUp24Cycles} />, caption: '24h' },
-            { value: <TC raw={fleet.toppedUp7dCycles} />, caption: '7d' },
-            { value: <TC raw={fleet.toppedUp14dCycles} />, caption: '14d' },
-          ]}
-        >
-          <div style={{ marginTop: 'auto', paddingTop: 4 }}>
-            <div className="faint mono" style={{ fontSize: 9.5, marginBottom: 3, letterSpacing: '0.04em' }}>
-              14-DAY VOLUME · TC
-            </div>
-            <MiniBars
-              data={fleet.volume14}
-              h={28}
-              tip={(v, i) => `${fmtTC(v)} TC · ${fmtDate(nowMs - (13 - i) * DAY_MS)}`}
-            />
-          </div>
-        </TripleCell>
-      </div>
-
-      {/* fleet + activity */}
-      <div className="grid" style={{ gridTemplateColumns: '1fr 340px', alignItems: 'start' }}>
-        <Panel
-          flush
-          title="Fleet"
-          eyebrow={filter ? `// filtered · ${STATUS_LABEL[filter].toLowerCase()}` : `// ${c.total} tracked canisters`}
-          actions={
-            <>
-              {schedule.nextCheckMs !== null && (
-                <span className="faint mono" style={{ fontSize: 11 }} title="Estimated next automatic cycle check across the fleet">
-                  next check ~{fmtUntil(schedule.nextCheckMs, now)}
-                </span>
-              )}
-              <button
-                className="btn ghost sm"
-                onClick={() => {
-                  fleet.refresh();
-                  schedule.refresh();
-                }}
-                disabled={fleet.loading}
-                title="Refresh fleet"
-              >
-                <Icon name="refresh" size={14} />
-              </button>
-              <button className="btn accent sm" onClick={onAdd}>
-                <Icon name="plus" size={14} />
-                Track canister
-              </button>
-            </>
-          }
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '10px var(--pad)',
-              borderBottom: '1px solid var(--border)',
-              flexWrap: 'wrap',
-            }}
-          >
-            <StatusLegend counts={c} active={filter} onPick={setFilter} />
-            <div className="input-suffix" style={{ marginLeft: 'auto', width: 218 }}>
-              <input
-                className="input mono"
-                placeholder="search name or id…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                style={{ height: 30, paddingRight: 28 }}
-              />
-              <Icon name="search" size={13} className="sfx" style={{ pointerEvents: 'none' }} />
-            </div>
-          </div>
-          {fleet.loading && canisters.length === 0 ? (
-            <Empty icon="canisters" title="Loading fleet…">Fetching your tracked canisters.</Empty>
-          ) : fleet.error ? (
-            <Empty icon="x" title="Couldn’t load fleet">{fleet.error}</Empty>
-          ) : rows.length === 0 ? (
-            <Empty icon="canisters" title="Nothing here">
-              {canisters.length === 0
-                ? 'No canisters tracked yet. Use “Track canister” to add one.'
-                : q
-                  ? 'No canisters match your search.'
-                  : 'No canisters match this filter.'}
-            </Empty>
-          ) : (
-            <FleetTable fleet={rows} onOpen={onOpen} sort={sort} onSort={onSort} />
-          )}
-        </Panel>
-        <Panel
-          flush
-          title="Activity"
-          eyebrow="// top-up stream"
-          actions={
-            fleet.fetchedAt !== null && (
-              <span className="faint mono" style={{ fontSize: 11 }} title={fmtDateTime(fleet.fetchedAt)}>
-                as of {fmtAgo(fleet.fetchedAt, now)}
-              </span>
-            )
-          }
-        >
-          <ActivityFeed activity={fleet.activity} limit={9} />
-        </Panel>
-      </div>
+      <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={balHist.events} />
+      <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} schedule={schedule} />
     </div>
   );
 }

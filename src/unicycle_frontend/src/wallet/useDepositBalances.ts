@@ -27,7 +27,7 @@ const emptyErrors = (): Record<Symbol, string | null> =>
     string | null
   >;
 
-export function useDepositBalances(identity: Identity | null): DepositBalances {
+export function useDepositBalances(identity: Identity | null, accountOwner?: Principal): DepositBalances {
   const [balances, setBalances] = useState<Record<Symbol, bigint | null>>(emptyBalances);
   const [errors, setErrors] = useState<Record<Symbol, string | null>>(emptyErrors);
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export function useDepositBalances(identity: Identity | null): DepositBalances {
     // trust issue local PocketIC has when II lives on a different subnet than
     // the ledger. Same pattern as useLocalWalletBalances.
     const agent = buildAgent();
-    const account = depositAccountFor(identity.getPrincipal());
+    const account = depositAccountFor(accountOwner ?? identity.getPrincipal());
 
     const reads = BUILT_IN_TOKENS.map((token) => {
       const canisterId = Principal.fromText(token.ledgerCanisterId);
@@ -80,7 +80,7 @@ export function useDepositBalances(identity: Identity | null): DepositBalances {
     return () => {
       cancelled = true;
     };
-  }, [identity, tick]);
+  }, [identity, accountOwner, tick]);
 
   return { balances, errors, loading, refresh };
 }
