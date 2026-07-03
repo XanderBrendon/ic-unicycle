@@ -139,34 +139,39 @@ const STATE_OPTS: Array<{ v: RowState; label: string; color: string }> = [
   { v: 'untracked', label: 'Untracked', color: 'var(--text-2)' },
 ];
 
+// Compact single-label pill: shows the active state and cycles
+// Tracked → Suspended → Untracked on click.
 function StateToggle({ value, onChange }: { value: RowState; onChange: (v: RowState) => void }) {
+  const idx = STATE_OPTS.findIndex((o) => o.v === value);
+  const cur = STATE_OPTS[idx];
   return (
-    <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
-      {STATE_OPTS.map((o, i) => {
-        const on = value === o.v;
-        return (
-          <button
-            key={o.v}
-            type="button"
-            onClick={() => onChange(o.v)}
-            style={{
-              padding: '4px 9px',
-              fontSize: 11,
-              lineHeight: 1.6,
-              whiteSpace: 'nowrap',
-              border: 'none',
-              borderLeft: i === 0 ? 'none' : '1px solid var(--border)',
-              cursor: 'pointer',
-              background: on ? `color-mix(in oklch, ${o.color} 18%, transparent)` : 'transparent',
-              color: on ? 'var(--text)' : 'var(--text-1)',
-              fontWeight: on ? 600 : 400,
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
+    <button
+      type="button"
+      onClick={() => onChange(STATE_OPTS[(idx + 1) % STATE_OPTS.length].v)}
+      title="Click to cycle: Tracked → Suspended → Untracked"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 7,
+        minWidth: 108,
+        padding: '4px 9px',
+        fontSize: 11.5,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        borderRadius: 6,
+        border: `1px solid color-mix(in oklch, ${cur.color} 40%, var(--border))`,
+        background: `color-mix(in oklch, ${cur.color} 16%, transparent)`,
+        color: 'var(--text)',
+        cursor: 'pointer',
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: cur.color, flex: 'none' }} />
+        {cur.label}
+      </span>
+      <Icon name="refresh" size={10} style={{ color: 'var(--text-2)', flex: 'none' }} />
+    </button>
   );
 }
 
@@ -289,7 +294,7 @@ export function GroupEditModal({
       title="Group edit canisters"
       eyebrow="// configure all SNS-controlled canisters"
       onClose={onClose}
-      width={820}
+      width={720}
       footer={rows && rows.length > 0 ? footer : undefined}
     >
       {loading ? (
@@ -320,7 +325,7 @@ export function GroupEditModal({
           <table className="tbl">
             <thead>
               <tr>
-                <th style={{ width: 216 }}>State</th>
+                <th style={{ width: 124 }}>State</th>
                 <th>Name</th>
                 <th>Canister</th>
                 <th className="num" style={{ width: 130 }}>Min</th>
