@@ -189,10 +189,10 @@ function DepositSection({ identity, root, current, pendingId, onProposed }: {
     <Panel title="Deposit auto-top-up" eyebrow="// treasury → Unicycle ICP deposits">
       <PendingNote rootText={root.toText()} id={pendingId} />
       <Field label="Min balance (ICP)" hint="Top up the deposit when it falls below this. 0 disables auto-deposit." error={parseError ?? validationError}>
-        <input className="input" value={min} onChange={(e) => setMin(e.target.value)} />
+        <input className="input mono" value={min} onChange={(e) => setMin(e.target.value)} inputMode="decimal" />
       </Field>
       <Field label="Deposit amount (ICP)" hint="ICP transferred from the SNS treasury per top-up.">
-        <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input className="input mono" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
       </Field>
       <Field label="Include cycle usage report in the top-up proposal">
         <input type="checkbox" checked={includeReport} onChange={(e) => setIncludeReport(e.target.checked)} />
@@ -288,7 +288,7 @@ function ReportSection({ identity, root, current, pendingId, onProposed }: {
     <Panel title="Cycle report" eyebrow="// recurring usage-report proposals">
       <PendingNote rootText={root.toText()} id={pendingId} />
       <Field label="Report cadence (days)" hint="Days between recurring cycle-usage report proposals. 0 disables." error={parseError}>
-        <input className="input" value={cadence} onChange={(e) => setCadence(e.target.value)} />
+        <input className="input mono" value={cadence} onChange={(e) => setCadence(e.target.value)} />
       </Field>
       <button
         className="btn accent sm"
@@ -429,19 +429,19 @@ function DrainAlertSection({ identity, root, current, pendingId, onProposed }: {
         hint="Alert when a day's burn exceeds this % of the 7-day average. 0 disables."
         error={parseError}
       >
-        <input className="input" value={weekly} onChange={(e) => setWeekly(e.target.value)} />
+        <input className="input mono" value={weekly} onChange={(e) => setWeekly(e.target.value)} />
       </Field>
       <Field
         label="Monthly avg threshold (%)"
         hint="Alert when a day's burn exceeds this % of the 30-day average. 0 disables."
       >
-        <input className="input" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
+        <input className="input mono" value={monthly} onChange={(e) => setMonthly(e.target.value)} />
       </Field>
       <Field label="Day-over-day threshold (%)" hint="Alert when a day's burn exceeds this % of the prior day. 0 disables.">
-        <input className="input" value={dayOverDay} onChange={(e) => setDayOverDay(e.target.value)} />
+        <input className="input mono" value={dayOverDay} onChange={(e) => setDayOverDay(e.target.value)} />
       </Field>
       <Field label="Alert cooldown (days)" hint="Minimum days between alert proposals. 0 = no cooldown.">
-        <input className="input" value={cooldown} onChange={(e) => setCooldown(e.target.value)} />
+        <input className="input mono" value={cooldown} onChange={(e) => setCooldown(e.target.value)} />
       </Field>
       <button
         className="btn accent sm"
