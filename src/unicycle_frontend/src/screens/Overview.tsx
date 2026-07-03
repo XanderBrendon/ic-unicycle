@@ -37,6 +37,7 @@ export interface OverviewProps {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;
+  onAddSns?: () => void;
 }
 
 type SortKey = 'risk' | 'name' | 'health' | 'cur' | 'min' | 'topup' | 'last';
@@ -421,7 +422,7 @@ export function OverviewLoading() {
 }
 
 /* ---------------- empty state (no tracked canisters) ---------------- */
-export function OverviewEmpty({ onAdd }: { onAdd: () => void }) {
+export function OverviewEmpty({ onAdd, onAddSns }: { onAdd: () => void; onAddSns?: () => void }) {
   return (
     <div className="fade-up" style={{ display: 'grid', placeItems: 'center', minHeight: '70vh', textAlign: 'center' }}>
       <div style={{ width: 380, maxWidth: '100%' }}>
@@ -452,6 +453,16 @@ export function OverviewEmpty({ onAdd }: { onAdd: () => void }) {
           <Icon name="plus" size={16} />
           Track canister
         </button>
+        {onAddSns && (
+          <button
+            className="btn ghost"
+            style={{ height: 42, paddingInline: 22, justifyContent: 'center', fontSize: 14, marginLeft: 10 }}
+            onClick={onAddSns}
+          >
+            <Icon name="shield" size={16} />
+            Track SNS
+          </button>
+        )}
       </div>
     </div>
   );
@@ -576,10 +587,11 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 }
 
 /* ---------------- fleet dashboard ---------------- */
-export function FleetDashboard({ fleet, onOpen, onAdd, onGroupEdit, schedule }: {
+export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, schedule }: {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;
+  onAddSns?: () => void;
   onGroupEdit?: () => void;
   schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null hides the next-check indicator
 }) {
@@ -652,6 +664,12 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onGroupEdit, schedule }: 
                 Group Edit
               </button>
             )}
+            {onAddSns && (
+              <button className="btn ghost sm" onClick={onAddSns}>
+                <Icon name="shield" size={14} />
+                Track SNS
+              </button>
+            )}
             <button className="btn accent sm" onClick={onAdd}>
               <Icon name="plus" size={14} />
               Track canister
@@ -716,7 +734,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onGroupEdit, schedule }: 
 }
 
 /* ---------------- Dashboard ---------------- */
-export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
+export function Overview({ identity, fleet, onOpen, onAdd, onAddSns }: OverviewProps) {
   const deposit = useDepositBalances(identity);
   const rate = useIcpTcRate(identity);
   const balHist = useBalanceHistory(identity);
@@ -733,13 +751,13 @@ export function Overview({ identity, fleet, onOpen, onAdd }: OverviewProps) {
   // No tracked canisters: replace the empty dashboard with a focused call to
   // action to add the first one. (todo-13)
   if (!fleet.error && fleet.canisters?.length === 0) {
-    return <OverviewEmpty onAdd={onAdd} />;
+    return <OverviewEmpty onAdd={onAdd} onAddSns={onAddSns} />;
   }
 
   return (
     <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
       <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={balHist.events} />
-      <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} schedule={schedule} />
+      <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} onAddSns={onAddSns} schedule={schedule} />
     </div>
   );
 }

@@ -14,7 +14,9 @@ export type Route =
   | { page: 'admin'; tab: AdminTab }
   | { page: 'canister'; id: Principal }
   | { page: 'sns'; root: Principal; tab: SnsTab }
-  | { page: 'snsCanister'; root: Principal; id: Principal };
+  | { page: 'snsCanister'; root: Principal; id: Principal }
+  | { page: 'trackedSns'; root: Principal }
+  | { page: 'blackholed' };
 
 export function parseHash(rawHash: string): Route {
   const segments = rawHash.replace(/^#/, '').split('/').filter(Boolean);
@@ -51,6 +53,16 @@ export function parseHash(rawHash: string): Route {
       }
       return { page: 'sns', root, tab: segments[2] === 'settings' ? 'settings' : 'overview' };
     }
+    case 'blackholed':
+      return { page: 'blackholed' };
+    case 'tracked': {
+      if (!segments[1]) return { page: 'overview' };
+      try {
+        return { page: 'trackedSns', root: Principal.fromText(segments[1]) };
+      } catch {
+        return { page: 'overview' };
+      }
+    }
     default:
       return { page: 'overview' };
   }
@@ -70,6 +82,10 @@ export function routeToHash(route: Route): string {
         : `#/sns/${route.root.toText()}/settings`;
     case 'snsCanister':
       return `#/sns/${route.root.toText()}/canister/${route.id.toText()}`;
+    case 'trackedSns':
+      return `#/tracked/${route.root.toText()}`;
+    case 'blackholed':
+      return '#/blackholed';
     case 'overview':
       return '#/overview';
   }

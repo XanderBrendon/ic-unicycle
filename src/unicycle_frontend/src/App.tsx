@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { Principal } from '@icp-sdk/core/principal';
 import { useAuth } from './auth/useAuth';
 import { useFleet } from './canisters/useFleet';
 import { useIsAdmin } from './admin/useIsAdmin';
 import { useMySnsAdminRoots } from './admin/useMySnsAdminRoots';
+import { useMyTrackedSnsRoots } from './canisters/useMyTrackedSnsRoots';
 import { useSnsInfos } from './sns/useSnsInfos';
 import { Icon, type IconName } from './ui/icons';
 import { useTheme } from './ui/theme';
@@ -15,6 +17,7 @@ import { Wallet } from './screens/Wallet';
 import { Admin } from './screens/Admin';
 import { SnsHome } from './screens/SnsHome';
 import { AddCanisterModal } from './canisters/CanisterModals';
+import { AddSnsModal } from './sns/AddSnsModal';
 import { useHashRoute, type Page, type Route } from './router';
 
 interface NavEntry {
@@ -37,11 +40,24 @@ export function App() {
   const { theme, toggle } = useTheme();
   const { route, navigate } = useHashRoute();
   const [addOpen, setAddOpen] = useState(false);
+  const [addSnsOpen, setAddSnsOpen] = useState(false);
 
   const fleet = useFleet(identity);
   const { isAdmin, loading: adminLoading } = useIsAdmin(identity);
   const { roots: snsAdminRoots } = useMySnsAdminRoots(identity);
-  const snsInfos = useSnsInfos(snsAdminRoots);
+  const { roots: trackedSnsRoots, refresh: refreshTrackedSns } = useMyTrackedSnsRoots(identity);
+  const allSnsRoots = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Principal[] = [];
+    for (const r of [...(snsAdminRoots ?? []), ...(trackedSnsRoots ?? [])]) {
+      if (!seen.has(r.toText())) {
+        seen.add(r.toText());
+        out.push(r);
+      }
+    }
+    return out;
+  }, [snsAdminRoots, trackedSnsRoots]);
+  const snsInfos = useSnsInfos(allSnsRoots);
 
   const selected = route.page === 'canister' ? route.id : null;
 
@@ -58,7 +74,17 @@ export function App() {
     ) {
       navigate({ page: 'overview' }, { replace: true });
     }
-  }, [route, isAdmin, adminLoading, snsAdminRoots, navigate]);
+    if (
+      route.page === 'trackedSns' &&
+      trackedSnsRoots !== null &&
+      !trackedSnsRoots.some((r) => r.toText() === route.root.toText())
+    ) {
+      navigate({ page: 'overview' }, { replace: true });
+    }
+    if (route.page === 'blackholed' && trackedSnsRoots !== null && trackedSnsRoots.length === 0) {
+      navigate({ page: 'overview' }, { replace: true });
+    }
+  }, [route, isAdmin, adminLoading, snsAdminRoots, trackedSnsRoots, navigate]);
 
   if (!identity) {
     return <SignIn onSignIn={signIn} loading={loading} />;
@@ -82,6 +108,29 @@ export function App() {
         { key: 'wallet', label: 'Wallet', icon: 'wallet', route: { page: 'wallet' }, active: route.page === 'wallet' },
       ],
     },
+    ...((trackedSnsRoots ?? []).length > 0
+      ? [{
+          sec: 'Tracked SNS',
+          items: [
+            ...(fleet.canisters?.some((c) => c.snsRoot === null)
+              ? [{
+                  key: 'blackholed',
+                  label: 'Blackholed',
+                  icon: 'canisters' as IconName,
+                  route: { page: 'blackholed' } as Route,
+                  active: route.page === 'blackholed',
+                }]
+              : []),
+            ...(trackedSnsRoots ?? []).map((r): NavEntry => ({
+              key: `tracked:${r.toText()}`,
+              label: snsInfos.infos[r.toText()]?.name ?? fmtPid(r.toText(), 6, 4),
+              icon: 'shield',
+              route: { page: 'trackedSns', root: r },
+              active: route.page === 'trackedSns' && route.root.toText() === r.toText(),
+            })),
+          ],
+        }]
+      : []),
     ...(snsNavRoots.length > 0
       ? [{
           sec: 'SNS',
@@ -118,7 +167,11 @@ export function App() {
       ? ['sns', snsInfos.infos[route.root.toText()]?.name ?? fmtPid(route.root.toText(), 6, 4)]
       : route.page === 'snsCanister'
         ? ['sns', fmtPid(route.id.toText(), 6, 4)]
-        : [route.page];
+        : route.page === 'trackedSns'
+          ? ['tracked sns', snsInfos.infos[route.root.toText()]?.name ?? fmtPid(route.root.toText(), 6, 4)]
+          : route.page === 'blackholed'
+            ? ['blackholed']
+            : [route.page];
 
   return (
     <div className="app">
@@ -203,6 +256,7 @@ export function App() {
                 fleet={fleet}
                 onOpen={(id) => navigate({ page: 'canister', id })}
                 onAdd={() => setAddOpen(true)}
+                onAddSns={() => setAddSnsOpen(true)}
               />
             ) : route.page === 'wallet' ? (
               <Wallet identity={identity} />
@@ -233,6 +287,10 @@ export function App() {
                 onBack={() => navigate({ page: 'sns', root: route.root, tab: 'overview' })}
                 onChanged={() => {}}
               />
+            ) : route.page === 'trackedSns' ? (
+              <div className="faint">Tracked SNS page (Task 9)</div>
+            ) : route.page === 'blackholed' ? (
+              <div className="faint">Blackholed page (Task 10)</div>
             ) : null}
           </div>
         </div>
@@ -247,6 +305,15 @@ export function App() {
             fleet.refresh();
             setAddOpen(false);
           }}
+        />
+      )}
+
+      {addSnsOpen && identity && (
+        <AddSnsModal
+          identity={identity}
+          trackedRootIds={(trackedSnsRoots ?? []).map((r) => r.toText())}
+          onClose={() => setAddSnsOpen(false)}
+          onAdded={() => refreshTrackedSns()}
         />
       )}
     </div>
