@@ -25,6 +25,7 @@ export function loadSnsInfo(root: string): SnsInfo | null {
   try {
     const parsed = JSON.parse(raw) as SnsInfo;
     if (typeof parsed?.governance !== 'string') return null;
+    Principal.fromText(parsed.governance);
     return parsed;
   } catch {
     return null;

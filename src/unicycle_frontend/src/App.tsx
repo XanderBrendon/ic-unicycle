@@ -162,6 +162,9 @@ export function App() {
                   style={{ cursor: i < crumbs.length - 1 ? 'pointer' : 'default' }}
                   onClick={() => {
                     if (selected && i === 0) navigate({ page: 'overview' });
+                    if (route.page === 'snsCanister' && i === 0) {
+                      navigate({ page: 'sns', root: route.root, tab: 'overview' });
+                    }
                   }}
                 >
                   {TITLE[c as Page] || c}
@@ -211,6 +214,7 @@ export function App() {
               />
             ) : route.page === 'sns' ? (
               <SnsHome
+                key={route.root.toText()}
                 identity={identity}
                 root={route.root}
                 info={snsInfos.infos[route.root.toText()]}

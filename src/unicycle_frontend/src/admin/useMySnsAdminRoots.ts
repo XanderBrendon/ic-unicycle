@@ -26,8 +26,8 @@ export function useMySnsAdminRoots(identity: Identity | null): MySnsAdminRoots {
 
     let cancelled = false;
     setLoading(true);
-    // Drop the prior identity's roots while the new identity's set loads, so a
-    // stale "Acting as" selection can't linger across an identity switch.
+    // Drop the prior identity's roots while the new identity's set loads, so
+    // stale SNS nav entries can't linger across an identity switch.
     setRoots(null);
 
     const backend = createUnicycleBackendActor(identity);

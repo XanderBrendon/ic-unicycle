@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
 import { useFleet } from '../canisters/useFleet';
@@ -32,7 +32,14 @@ export function SnsHome({
   const deposit = useDepositBalances(identity, root); // the SNS root's deposit subaccount
   const rate = useIcpTcRate(identity);
   const [addOpen, setAddOpen] = useState(false);
-  const governance = info ? Principal.fromText(info.governance) : null;
+  const governance = useMemo(() => {
+    if (!info) return null;
+    try {
+      return Principal.fromText(info.governance);
+    } catch {
+      return null;
+    }
+  }, [info?.governance]);
 
   return (
     <>

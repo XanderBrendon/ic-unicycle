@@ -186,10 +186,6 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
 
 /* identity menu (topbar) */
 .identity-menu { position: relative; }
-.identity-menu .acting-mark {
-  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--accent-ink); font-weight: 600;
-}
 .identity-panel {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
   width: 300px; padding: 4px;
