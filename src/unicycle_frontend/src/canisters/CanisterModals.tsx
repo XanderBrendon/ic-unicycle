@@ -57,6 +57,7 @@ export function AddCanisterModal({ identity, actingAs, onClose, onAdded }: AddCa
       cycleTopUpAmount: topupRaw,
       suspendedUntil: undefined,
       nickname: label || undefined,
+      snsRoot: undefined,
     });
     if (res.ok) {
       toast(
@@ -180,6 +181,7 @@ export function EditCanisterModal({ identity, actingAs, canisterId, config, onCl
       // Server preserves the prior suspension regardless; pass it through.
       suspendedUntil: config.suspendedUntil,
       nickname: label || undefined,
+      snsRoot: undefined,
     });
     if (res.ok) {
       toast(

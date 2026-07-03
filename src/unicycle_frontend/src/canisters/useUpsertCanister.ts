@@ -23,6 +23,9 @@ export interface UpsertCanisterArgs {
   // Optional human label. `mergeConfig` takes the incoming value, so edits can
   // rename (send the new label) or clear it (send undefined).
   nickname?: string;
+  // Discarded server-side — the upsert verification is the only writer of the
+  // stored stamp. Present because the candid binding requires the field.
+  snsRoot?: Principal;
 }
 
 export type UpsertCanisterResult =

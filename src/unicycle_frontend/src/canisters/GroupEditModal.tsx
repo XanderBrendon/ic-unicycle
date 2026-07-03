@@ -106,6 +106,7 @@ async function applyRow(
     cycleTopUpAmount: top,
     suspendedUntil: r.suspendedUntil,
     nickname: r.name.trim().slice(0, NICKNAME_MAX) || undefined,
+    snsRoot: undefined,
   };
   try {
     const res = await backend.asSnsUpsertCanister(root, id, config);

@@ -23,6 +23,28 @@ type UpsertCanisterError =
    zeroCycleTopUpAmount;
    zeroMinCycleBalance;
  };
+type AddTrackedSnsError =
+ variant {
+   alreadyTracked;
+   anonymous;
+   limitReached: record {maxTrackedSns: nat;};
+   notAnSnsRoot;
+ };
+type RemoveTrackedSnsError =
+ variant {
+   anonymous;
+   topUpInFlight;
+ };
+type Result_AddTrackedSns =
+ variant {
+   err: AddTrackedSnsError;
+   ok;
+ };
+type Result_RemoveTrackedSns =
+ variant {
+   err: RemoveTrackedSnsError;
+   ok: nat;
+ };
 type UpdateAdminSettingsError =
  variant {
    anonymous;
@@ -36,6 +58,7 @@ type UpdateAdminSettingsError =
 type Unicycle =
  service {
    addAdmin: (p: principal) -> (Result_3);
+   addTrackedSns: (root: principal) -> (Result_AddTrackedSns);
    adminFundLpPosition: (amount: nat) -> (Result_24);
    adminGetLogs: (filter: LogFilter) -> (Result_23) query;
    adminGetLoyaltyInfo: () -> (Result_22) query;
@@ -91,6 +114,7 @@ type Unicycle =
    getMyBalanceHistory: () -> (vec BalanceEvent) query;
    getMyLoyaltyStatus: () -> (MyLoyaltyStatus) query;
    getMySnsAdminRoots: () -> (vec principal) query;
+   getMyTrackedSnsRoots: () -> (vec principal) query;
    getPrimaryAdmin: () -> (opt principal) query;
    getSnsAdmins: (governance: principal) -> (opt vec principal);
    getSnsDepositAccount: (governance: principal) -> (opt Account);
@@ -108,6 +132,7 @@ type Unicycle =
    recordCyclesNow: (canisterId: principal) -> (Result_6);
    removeAdmin: (p: principal) -> (Result_3);
    removeCanister: (canisterId: principal) -> (Result_5);
+   removeTrackedSns: (root: principal) -> (Result_RemoveTrackedSns);
    setBlackholeCanister: (p: principal) -> (Result_3);
    setCanisterSuspended: (canisterId: principal, suspend: bool) -> (Result_4);
    setIcpSwapPool: (p: principal) -> (Result_3);
@@ -623,6 +648,7 @@ type CanisterConfig =
    cycleTopUpAmount: nat;
    minCycleBalance: nat;
    nickname: opt text;
+   snsRoot: opt principal;
    suspendedUntil: opt nat;
  };
 type BalanceEventKind =
