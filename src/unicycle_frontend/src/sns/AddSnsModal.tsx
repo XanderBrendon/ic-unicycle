@@ -114,6 +114,7 @@ export function AddSnsModal({
     if (Object.keys(failed).length > 0) {
       setRowErrors(failed);
       setPicked(new Set(Object.keys(failed).filter((id) => id !== manualId)));
+      if (manualId && targets.includes(manualId) && !(manualId in failed)) setManual('');
     } else if (added > 0) {
       onClose();
     }
