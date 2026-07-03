@@ -576,10 +576,11 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 }
 
 /* ---------------- fleet dashboard ---------------- */
-export function FleetDashboard({ fleet, onOpen, onAdd, schedule }: {
+export function FleetDashboard({ fleet, onOpen, onAdd, onGroupEdit, schedule }: {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;
+  onGroupEdit?: () => void;
   schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null hides the next-check indicator
 }) {
   const now = useNow();
@@ -645,6 +646,12 @@ export function FleetDashboard({ fleet, onOpen, onAdd, schedule }: {
             >
               <Icon name="refresh" size={14} />
             </button>
+            {onGroupEdit && (
+              <button className="btn ghost sm" onClick={onGroupEdit}>
+                <Icon name="edit" size={14} />
+                Group Edit
+              </button>
+            )}
             <button className="btn accent sm" onClick={onAdd}>
               <Icon name="plus" size={14} />
               Track canister

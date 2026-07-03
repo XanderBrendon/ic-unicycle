@@ -6,6 +6,7 @@ import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useIcpTcRate } from '../canisters/useIcpTcRate';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { AddCanisterModal } from '../canisters/CanisterModals';
+import { GroupEditModal } from '../canisters/GroupEditModal';
 import { CopyId, Tabs, ErrorHint } from '../ui/primitives';
 import { Icon } from '../ui/icons';
 import { fmtPid } from '../ui/format';
@@ -34,6 +35,7 @@ export function SnsHome({
   const rate = useIcpTcRate(identity);
   const schedule = useTimerSchedule(identity); // global fleet-wide sweep — same value as the personal overview
   const [addOpen, setAddOpen] = useState(false);
+  const [groupEditOpen, setGroupEditOpen] = useState(false);
   const governance = useMemo(() => {
     if (!info) return null;
     try {
@@ -82,7 +84,13 @@ export function SnsHome({
         ) : (
           <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
             <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />
-            <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={() => setAddOpen(true)} schedule={schedule} />
+            <FleetDashboard
+              fleet={fleet}
+              onOpen={onOpen}
+              onAdd={() => setAddOpen(true)}
+              onGroupEdit={() => setGroupEditOpen(true)}
+              schedule={schedule}
+            />
           </div>
         ))}
 
@@ -96,6 +104,19 @@ export function SnsHome({
           onAdded={() => {
             fleet.refresh();
             setAddOpen(false);
+          }}
+        />
+      )}
+
+      {groupEditOpen && (
+        <GroupEditModal
+          identity={identity}
+          root={root}
+          tracked={fleet.canisters ?? []}
+          onClose={() => setGroupEditOpen(false)}
+          onSaved={() => {
+            fleet.refresh();
+            setGroupEditOpen(false);
           }}
         />
       )}
