@@ -31,7 +31,8 @@ module {
   //     like a non-optional add. Ship it with an explicit `(with migration = …)`.
   //     Precedent: `CanisterConfig.snsRoot` — `CanisterConfig` lives inside
   //     `tracked : Map<…, Map<…, CanisterConfig>>`, so its additive optional
-  //     `snsRoot` needed `Migration.run` (see migration.mo).
+  //     `snsRoot` shipped with a one-shot `(with migration = …)` module, since
+  //     removed once the upgrade landed in production.
   //
   //   * NON-OPTIONAL field add, type change, field rename/removal, or changing a
   //     variant tag's payload: these are NOT upgrade-compatible. The upgrade
