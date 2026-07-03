@@ -38,7 +38,7 @@ export interface UseUpsertCanisterResult {
   reset: () => void;
 }
 
-function formatUpsertCanisterError(
+export function formatUpsertCanisterError(
   err: UpsertCanisterError,
   target: Principal,
 ): UserError & { command?: string } {
