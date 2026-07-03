@@ -142,14 +142,13 @@ module {
     memo : ?Nat64;
     amount_e8s : Nat64;
   };
+  public type SnsExecuteGenericFunction = { function_id : Nat64; payload : Blob };
   public type SnsAction = {
     #Motion : SnsMotion;
     #AddGenericNervousSystemFunction : SnsNervousSystemFunction;
-    // Deregister (snsDeregister): remove a previously-registered generic
-    // function by id. Verified against the dfinity/ic SNS governance candid —
-    // `RemoveGenericNervousSystemFunction : nat64`.
     #RemoveGenericNervousSystemFunction : Nat64;
     #TransferSnsTreasuryFunds : SnsTransferTreasuryFunds;
+    #ExecuteGenericNervousSystemFunction : SnsExecuteGenericFunction;
   };
   public type SnsProposalArg = { title : Text; url : Text; summary : Text; action : ?SnsAction };
   public type SnsManageNeuron = { subaccount : Blob; command : ?{ #MakeProposal : SnsProposalArg } };
