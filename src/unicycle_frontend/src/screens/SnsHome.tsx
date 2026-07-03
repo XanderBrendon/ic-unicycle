@@ -4,6 +4,7 @@ import { Principal } from '@icp-sdk/core/principal';
 import { useFleet } from '../canisters/useFleet';
 import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useIcpTcRate } from '../canisters/useIcpTcRate';
+import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { AddCanisterModal } from '../canisters/CanisterModals';
 import { CopyId, Tabs, ErrorHint } from '../ui/primitives';
 import { Icon } from '../ui/icons';
@@ -31,6 +32,7 @@ export function SnsHome({
   const fleet = useFleet(identity, root);
   const deposit = useDepositBalances(identity, root); // the SNS root's deposit subaccount
   const rate = useIcpTcRate(identity);
+  const schedule = useTimerSchedule(identity); // global fleet-wide sweep — same value as the personal overview
   const [addOpen, setAddOpen] = useState(false);
   const governance = useMemo(() => {
     if (!info) return null;
@@ -80,7 +82,7 @@ export function SnsHome({
         ) : (
           <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
             <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />
-            <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={() => setAddOpen(true)} schedule={null} />
+            <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={() => setAddOpen(true)} schedule={schedule} />
           </div>
         ))}
 

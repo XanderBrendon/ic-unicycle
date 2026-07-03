@@ -580,7 +580,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, schedule }: {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
   onAdd: () => void;
-  schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null on the SNS page
+  schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null hides the next-check indicator
 }) {
   const now = useNow();
   const [sort, setSort] = useState<SortState>({ key: 'risk', dir: 'asc' });
