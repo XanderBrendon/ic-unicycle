@@ -80,7 +80,7 @@ export function SnsHome({
         (fleet.canisters === null && !fleet.error ? (
           <OverviewLoading />
         ) : !fleet.error && fleet.canisters?.length === 0 ? (
-          <OverviewEmpty onAdd={() => setAddOpen(true)} />
+          <OverviewEmpty onAdd={() => setAddOpen(true)} onGroupEdit={() => setGroupEditOpen(true)} />
         ) : (
           <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
             <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />

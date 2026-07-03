@@ -135,7 +135,7 @@ export function App() {
       : []),
     ...(snsNavRoots.length > 0
       ? [{
-          sec: 'SNS',
+          sec: 'SNS Admin',
           items: snsNavRoots.map((r): NavEntry => ({
             key: `sns:${r.toText()}`,
             label: snsInfos.infos[r.toText()]?.name ?? fmtPid(r.toText(), 6, 4),

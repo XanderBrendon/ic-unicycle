@@ -443,7 +443,7 @@ export function OverviewLoading() {
 }
 
 /* ---------------- empty state (no tracked canisters) ---------------- */
-export function OverviewEmpty({ onAdd, onAddSns }: { onAdd: () => void; onAddSns?: () => void }) {
+export function OverviewEmpty({ onAdd, onAddSns, onGroupEdit }: { onAdd: () => void; onAddSns?: () => void; onGroupEdit?: () => void }) {
   return (
     <div className="fade-up" style={{ display: 'grid', placeItems: 'center', minHeight: '70vh', textAlign: 'center' }}>
       <div style={{ width: 380, maxWidth: '100%' }}>
@@ -482,6 +482,16 @@ export function OverviewEmpty({ onAdd, onAddSns }: { onAdd: () => void; onAddSns
           >
             <Icon name="shield" size={16} />
             Track SNS
+          </button>
+        )}
+        {onGroupEdit && (
+          <button
+            className="btn ghost"
+            style={{ height: 42, paddingInline: 22, justifyContent: 'center', fontSize: 14, marginLeft: 10 }}
+            onClick={onGroupEdit}
+          >
+            <Icon name="edit" size={16} />
+            Group Edit
           </button>
         )}
       </div>
