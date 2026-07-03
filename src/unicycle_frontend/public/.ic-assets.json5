@@ -23,14 +23,16 @@
       // <canister>.icp0.io -> icp0.io), so update/query calls leave the page
       // origin and connect-src must list those gateway apexes. (On a custom
       // domain no rewrite happens, so 'self' covers it there.) Internet Identity
-      // at id.ai is opened as a popup, kept in connect-src for headroom. The
-      // production bundle has no
+      // at id.ai is opened as a popup, kept in connect-src for headroom. The SNS
+      // directory picker fetches the public dashboard SNS API at
+      // sns-api.internetcomputer.org (a convenience list re-validated on-chain).
+      // The production bundle has no
       // inline scripts, so script-src is a strict 'self'. React styling sets the
       // CSSOM (not governed by CSP); 'unsafe-inline' on style-src only covers any
       // runtime style attributes and carries no script-execution risk. Origins
       // were narrowed from the dfinity baseline's wildcards (style-src *,
       // font-src *, broad connect-src) to just what this app loads.
-      "Content-Security-Policy": "default-src 'self'; script-src 'self'; connect-src 'self' https://icp0.io https://ic0.app https://icp-api.io https://id.ai; img-src 'self' data:; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self'; connect-src 'self' https://icp0.io https://ic0.app https://icp-api.io https://id.ai https://sns-api.internetcomputer.org; img-src 'self' data:; style-src 'self' 'unsafe-inline'; style-src-elem 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests;",
 
       // Disable all powerful browser features (verbatim from the dfinity policy).
       "Permissions-Policy": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), keyboard-map=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=(), clipboard-read=(), clipboard-write=(self), gamepad=(), speaker-selection=(), conversion-measurement=(), focus-without-user-activation=(), hid=(), idle-detection=(), interest-cohort=(), serial=(), sync-script=(), trust-token-redemption=(), window-placement=(), vertical-scroll=()",
