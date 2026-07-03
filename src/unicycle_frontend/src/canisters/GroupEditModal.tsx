@@ -1,7 +1,9 @@
 // Bulk-configure every SNS-controlled canister at once. Lists the SNS root's
 // canisters (list_sns_canisters) in an editable table seeded from the already-
-// tracked fleet; Save reconciles the checked set — checked rows are upserted,
-// unchecked-but-previously-tracked rows are untracked.
+// tracked fleet. Each row has a tri-state toggle — Tracked / Suspended /
+// Untracked. On Save the desired state is reconciled: Tracked/Suspended rows
+// are upserted (and their suspension set), Untracked-but-previously-tracked
+// rows are removed.
 import { useEffect, useMemo, useState } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import type { Principal } from '@icp-sdk/core/principal';
@@ -11,7 +13,11 @@ import { fmtPid, TCYCLES_DECIMALS } from '../ui/format';
 import { useToast } from '../ui/toast';
 import { parseDecimalAmount, formatTokenAmount } from '../wallet/format';
 import { createUnicycleBackendActor } from '../auth/actor';
-import { RemoveCanisterError, type CanisterConfig } from '../bindings/unicycle_backend/unicycle_backend';
+import {
+  RemoveCanisterError,
+  SuspendCanisterError,
+  type CanisterConfig,
+} from '../bindings/unicycle_backend/unicycle_backend';
 import { formatUpsertCanisterError } from './useUpsertCanister';
 import { useSnsCanisterList, type SnsCanisterEntry } from '../sns/snsCanisterList';
 import type { FleetCanister } from './useFleet';
@@ -20,18 +26,22 @@ const NICKNAME_MAX = 48;
 const DEFAULT_MIN_TC = '1';
 const DEFAULT_TOPUP_TC = '0.5';
 
+type RowState = 'tracked' | 'suspended' | 'untracked';
+
 interface Row {
   entry: SnsCanisterEntry;
   idText: string;
-  tracked: boolean; // tracked at the moment of (re)seeding
-  suspendedUntil: bigint | undefined; // preserved through upsert
-  checked: boolean;
+  tracked: boolean; // persisted tracked state (at open / after a save)
+  suspended: boolean; // persisted suspension state
+  suspendedUntil: bigint | undefined; // preserved through upsert (discarded server-side, passed for parity)
+  state: RowState; // desired state
   name: string;
   min: string;
   topup: string;
 }
 
 type RowResult = { ok: true } | { ok: false; error: string };
+type Backend = ReturnType<typeof createUnicycleBackendActor>;
 
 function removeErrMsg(err: RemoveCanisterError): string {
   switch (err) {
@@ -46,11 +56,118 @@ function removeErrMsg(err: RemoveCanisterError): string {
   }
 }
 
+function suspendErrMsg(err: SuspendCanisterError): string {
+  switch (err) {
+    case SuspendCanisterError.notTracked:
+      return 'Not tracked — could not change its suspension.';
+    case SuspendCanisterError.anonymous:
+      return "You're not signed in.";
+    default:
+      return String(err);
+  }
+}
+
 function rowInvalid(r: Row): boolean {
-  if (!r.checked) return false;
+  if (r.state === 'untracked') return false;
   const min = parseDecimalAmount(r.min, TCYCLES_DECIMALS);
   const top = parseDecimalAmount(r.topup, TCYCLES_DECIMALS);
   return !min || min <= 0n || !top || top <= 0n;
+}
+
+// Apply one row's desired state and return both the outcome and the state that
+// actually persisted, so a retry after a partial failure converges.
+async function applyRow(
+  backend: Backend,
+  root: Principal,
+  r: Row,
+): Promise<RowResult & { tracked: boolean; suspended: boolean }> {
+  const id = r.entry.canisterId;
+  if (r.state === 'untracked') {
+    if (!r.tracked) return { ok: true, tracked: false, suspended: false };
+    try {
+      const res = await backend.asSnsRemoveCanister(root, id);
+      if (res.__kind__ === 'ok') return { ok: true, tracked: false, suspended: false };
+      return { ok: false, error: removeErrMsg(res.err), tracked: r.tracked, suspended: r.suspended };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: r.tracked, suspended: r.suspended };
+    }
+  }
+
+  // Tracked or suspended → upsert config first (creates the tracking entry).
+  const min = parseDecimalAmount(r.min, TCYCLES_DECIMALS);
+  const top = parseDecimalAmount(r.topup, TCYCLES_DECIMALS);
+  let curTracked = r.tracked;
+  const curSuspended = r.suspended;
+  if (!min || !top) {
+    return { ok: false, error: 'Invalid min or top-up amount.', tracked: curTracked, suspended: curSuspended };
+  }
+  const config: CanisterConfig = {
+    minCycleBalance: min,
+    cycleTopUpAmount: top,
+    suspendedUntil: r.suspendedUntil,
+    nickname: r.name.trim().slice(0, NICKNAME_MAX) || undefined,
+  };
+  try {
+    const res = await backend.asSnsUpsertCanister(root, id, config);
+    if (res.__kind__ !== 'ok') {
+      return { ok: false, error: formatUpsertCanisterError(res.err, id).message, tracked: curTracked, suspended: curSuspended };
+    }
+    curTracked = true;
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: curTracked, suspended: curSuspended };
+  }
+
+  // Reconcile suspension only when it differs from what's already on-chain
+  // (suspension is a separate call — the upsert's suspendedUntil is ignored).
+  const wantSuspended = r.state === 'suspended';
+  if (wantSuspended !== curSuspended) {
+    try {
+      const res = await backend.asSnsSetCanisterSuspended(root, id, wantSuspended);
+      if (res.__kind__ !== 'ok') {
+        return { ok: false, error: suspendErrMsg(res.err), tracked: curTracked, suspended: curSuspended };
+      }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: curTracked, suspended: curSuspended };
+    }
+  }
+  return { ok: true, tracked: curTracked, suspended: wantSuspended };
+}
+
+const STATE_OPTS: Array<{ v: RowState; label: string; color: string }> = [
+  { v: 'tracked', label: 'Tracked', color: 'var(--accent-ink)' },
+  { v: 'suspended', label: 'Suspended', color: 'var(--warn)' },
+  { v: 'untracked', label: 'Untracked', color: 'var(--text-2)' },
+];
+
+function StateToggle({ value, onChange }: { value: RowState; onChange: (v: RowState) => void }) {
+  return (
+    <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+      {STATE_OPTS.map((o, i) => {
+        const on = value === o.v;
+        return (
+          <button
+            key={o.v}
+            type="button"
+            onClick={() => onChange(o.v)}
+            style={{
+              padding: '4px 9px',
+              fontSize: 11,
+              lineHeight: 1.6,
+              whiteSpace: 'nowrap',
+              border: 'none',
+              borderLeft: i === 0 ? 'none' : '1px solid var(--border)',
+              cursor: 'pointer',
+              background: on ? `color-mix(in oklch, ${o.color} 18%, transparent)` : 'transparent',
+              color: on ? 'var(--text)' : 'var(--text-1)',
+              fontWeight: on ? 600 : 400,
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export function GroupEditModal({
@@ -85,12 +202,14 @@ export function GroupEditModal({
       entries.map((entry) => {
         const idText = entry.canisterId.toText();
         const t = trackedById.get(idText);
+        const suspended = !!t?.suspended;
         return {
           entry,
           idText,
           tracked: !!t,
+          suspended,
           suspendedUntil: t?.config.suspendedUntil,
-          checked: !!t,
+          state: !t ? 'untracked' : suspended ? 'suspended' : 'tracked',
           name: t?.config.nickname ?? entry.defaultName,
           min: t ? formatTokenAmount(t.config.minCycleBalance, TCYCLES_DECIMALS) : DEFAULT_MIN_TC,
           topup: t ? formatTokenAmount(t.config.cycleTopUpAmount, TCYCLES_DECIMALS) : DEFAULT_TOPUP_TC,
@@ -102,10 +221,10 @@ export function GroupEditModal({
   const patch = (idText: string, p: Partial<Row>) =>
     setRows((prev) => prev?.map((r) => (r.idText === idText ? { ...r, ...p } : r)) ?? null);
 
-  const toRemove = (rows ?? []).filter((r) => !r.checked && r.tracked);
-  const toUpsert = (rows ?? []).filter((r) => r.checked);
+  const toRemove = (rows ?? []).filter((r) => r.state === 'untracked' && r.tracked);
+  const toApply = (rows ?? []).filter((r) => r.state !== 'untracked');
   const anyInvalid = (rows ?? []).some(rowInvalid);
-  const nothingToDo = toUpsert.length === 0 && toRemove.length === 0;
+  const nothingToDo = toApply.length === 0 && toRemove.length === 0;
 
   const runSave = async () => {
     if (!rows) return;
@@ -113,55 +232,22 @@ export function GroupEditModal({
     setTopError(null);
     const backend = createUnicycleBackendActor(identity);
     const next: Record<string, RowResult> = {};
+    const persisted: Record<string, { tracked: boolean; suspended: boolean }> = {};
     let anyFail = false;
     for (const r of rows) {
-      if (r.checked) {
-        const min = parseDecimalAmount(r.min, TCYCLES_DECIMALS);
-        const top = parseDecimalAmount(r.topup, TCYCLES_DECIMALS);
-        if (!min || !top) continue; // guarded by anyInvalid; belt-and-suspenders
-        const label = r.name.trim().slice(0, NICKNAME_MAX);
-        const config: CanisterConfig = {
-          minCycleBalance: min,
-          cycleTopUpAmount: top,
-          suspendedUntil: r.suspendedUntil,
-          nickname: label || undefined,
-        };
-        try {
-          const res = await backend.asSnsUpsertCanister(root, r.entry.canisterId, config);
-          if (res.__kind__ === 'ok') next[r.idText] = { ok: true };
-          else {
-            next[r.idText] = { ok: false, error: formatUpsertCanisterError(res.err, r.entry.canisterId).message };
-            anyFail = true;
-          }
-        } catch (e) {
-          next[r.idText] = { ok: false, error: e instanceof Error ? e.message : String(e) };
-          anyFail = true;
-        }
-      } else if (r.tracked) {
-        try {
-          const res = await backend.asSnsRemoveCanister(root, r.entry.canisterId);
-          if (res.__kind__ === 'ok') next[r.idText] = { ok: true };
-          else {
-            next[r.idText] = { ok: false, error: removeErrMsg(res.err) };
-            anyFail = true;
-          }
-        } catch (e) {
-          next[r.idText] = { ok: false, error: e instanceof Error ? e.message : String(e) };
-          anyFail = true;
-        }
-      }
+      const res = await applyRow(backend, root, r);
+      persisted[r.idText] = { tracked: res.tracked, suspended: res.suspended };
+      next[r.idText] = res.ok ? { ok: true } : { ok: false, error: res.error };
+      if (!res.ok) anyFail = true;
     }
     setResults(next);
     if (anyFail) {
-      // Reflect what actually persisted so a retry converges: succeeded upserts
-      // are now tracked; succeeded removes are no longer tracked (and, being
-      // unchecked, become no-ops on the next Save).
+      // Reflect what actually persisted so a retry re-runs only the failures.
       setRows(
         (prev) =>
           prev?.map((r) => {
-            const res = next[r.idText];
-            if (!res || !res.ok) return r;
-            return { ...r, tracked: r.checked };
+            const p = persisted[r.idText];
+            return p ? { ...r, tracked: p.tracked, suspended: p.suspended } : r;
           }) ?? null,
       );
       setTopError('Some canisters could not be saved. Review the flagged rows and try again.');
@@ -170,7 +256,7 @@ export function GroupEditModal({
       toast(
         <>
           <Icon name="check" size={14} style={{ color: 'var(--accent-ink)' }} />
-          Saved {toUpsert.length} canister{toUpsert.length === 1 ? '' : 's'}
+          Saved {toApply.length} canister{toApply.length === 1 ? '' : 's'}
           {toRemove.length ? `, untracked ${toRemove.length}` : ''}
         </>,
       );
@@ -203,7 +289,7 @@ export function GroupEditModal({
       title="Group edit canisters"
       eyebrow="// configure all SNS-controlled canisters"
       onClose={onClose}
-      width={760}
+      width={820}
       footer={rows && rows.length > 0 ? footer : undefined}
     >
       {loading ? (
@@ -234,11 +320,11 @@ export function GroupEditModal({
           <table className="tbl">
             <thead>
               <tr>
-                <th style={{ width: 34 }}>Track</th>
+                <th style={{ width: 216 }}>State</th>
                 <th>Name</th>
                 <th>Canister</th>
-                <th className="num" style={{ width: 150 }}>Min</th>
-                <th className="num" style={{ width: 150 }}>Top-up</th>
+                <th className="num" style={{ width: 130 }}>Min</th>
+                <th className="num" style={{ width: 130 }}>Top-up</th>
                 <th style={{ width: 28 }}></th>
               </tr>
             </thead>
@@ -246,21 +332,18 @@ export function GroupEditModal({
               {rows.map((r) => {
                 const res = results[r.idText];
                 const invalid = rowInvalid(r);
+                const off = r.state === 'untracked';
                 return (
                   <tr key={r.idText}>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={r.checked}
-                        onChange={(e) => patch(r.idText, { checked: e.target.checked })}
-                      />
+                      <StateToggle value={r.state} onChange={(v) => patch(r.idText, { state: v })} />
                     </td>
                     <td>
                       <input
                         className="input"
                         value={r.name}
                         maxLength={NICKNAME_MAX}
-                        disabled={!r.checked}
+                        disabled={off}
                         onChange={(e) => patch(r.idText, { name: e.target.value })}
                         style={{ height: 30 }}
                       />
@@ -273,7 +356,7 @@ export function GroupEditModal({
                         <input
                           className="input mono"
                           value={r.min}
-                          disabled={!r.checked}
+                          disabled={off}
                           inputMode="decimal"
                           onChange={(e) => patch(r.idText, { min: e.target.value })}
                           style={{ height: 30, paddingRight: 30, borderColor: invalid ? 'var(--crit)' : undefined }}
@@ -286,7 +369,7 @@ export function GroupEditModal({
                         <input
                           className="input mono"
                           value={r.topup}
-                          disabled={!r.checked}
+                          disabled={off}
                           inputMode="decimal"
                           onChange={(e) => patch(r.idText, { topup: e.target.value })}
                           style={{ height: 30, paddingRight: 30, borderColor: invalid ? 'var(--crit)' : undefined }}
