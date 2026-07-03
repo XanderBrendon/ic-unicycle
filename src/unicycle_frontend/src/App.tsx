@@ -17,6 +17,7 @@ import { Wallet } from './screens/Wallet';
 import { Admin } from './screens/Admin';
 import { SnsHome } from './screens/SnsHome';
 import { TrackedSnsHome } from './screens/TrackedSnsHome';
+import { BlackholedCanisters } from './screens/BlackholedCanisters';
 import { AddCanisterModal } from './canisters/CanisterModals';
 import { AddSnsModal } from './sns/AddSnsModal';
 import { useHashRoute, type Page, type Route } from './router';
@@ -305,7 +306,11 @@ export function App() {
                 }}
               />
             ) : route.page === 'blackholed' ? (
-              <div className="faint">Blackholed page (Task 10)</div>
+              <BlackholedCanisters
+                identity={identity}
+                onOpen={(id) => navigate({ page: 'canister', id })}
+                onChanged={fleet.refresh}
+              />
             ) : null}
           </div>
         </div>
