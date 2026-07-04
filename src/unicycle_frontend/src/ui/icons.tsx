@@ -21,6 +21,7 @@ const P = {
   chevronR: 'M9 6l6 6-6 6',
   chevronD: 'M6 9l6 6 6-6',
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  menu: 'M3 6h18M3 12h18M3 18h18',
   copy: 'M11 9h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
   grid: 'M3 3h8v8H3zM13 3h8v8h-8zM13 13h8v8h-8zM3 13h8v8H3z',
   layout: 'M3 3h18v18H3zM3 9h18M9 9v12',

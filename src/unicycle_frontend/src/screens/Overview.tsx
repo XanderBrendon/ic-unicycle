@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import type { Principal } from '@icp-sdk/core/principal';
 import { Icon } from '../ui/icons';
-import { Panel, Empty, TC } from '../ui/primitives';
+import { Panel, Empty, StatusBadge, TC } from '../ui/primitives';
 import { AreaChart, FuelBar, MiniBars, Sparkline } from '../ui/charts';
 import {
   fmtAgo,
@@ -288,7 +288,7 @@ function StatusLegend({
     ['suspended', counts.suspended],
   ];
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       {items.map(([s, n]) => {
         const on = active === s;
         return (
@@ -349,7 +349,8 @@ function FleetTable({
     );
   };
   return (
-    <table className="tbl">
+    <>
+    <table className="tbl tbl-fleet">
       <thead>
         <tr>
           <th style={{ width: 34 }}></th>
@@ -430,6 +431,46 @@ function FleetTable({
         ))}
       </tbody>
     </table>
+
+    <div className="fleet-cards">
+      {fleet.map((c) => (
+        <button key={c.idText} className="fleet-card" onClick={() => onOpen(c.canisterId)}>
+          <div className="fc-top">
+            <span
+              className={`dot ${c.status === 'suspended' || c.status === 'unknown' ? '' : c.status} ${
+                c.status === 'crit' ? 'pulse' : ''
+              }`}
+            />
+            <div className="fc-name">
+              <span className="fc-title">
+                <span className="ellipsis">{c.label}</span>
+                {c.snsRoot && (
+                  <span
+                    style={{
+                      fontSize: 9.5, fontWeight: 600, padding: '1px 6px', borderRadius: 5,
+                      border: '1px solid var(--border-2)', color: 'var(--text-2)',
+                      whiteSpace: 'nowrap', flex: 'none',
+                    }}
+                  >
+                    {snsNames?.[c.snsRoot.toText()] ?? fmtPid(c.snsRoot.toText(), 4, 3)}
+                  </span>
+                )}
+              </span>
+              <span className="mono faint fc-id ellipsis">{fmtPid(c.idText, 8, 5)}</span>
+            </div>
+            <StatusBadge status={c.status} />
+          </div>
+          <FuelBar cur={c.cur} min={c.min} status={c.status} width="100%" />
+          <div className="fc-stats">
+            <div><label>Balance</label><span className="v" style={{ color: statusColor(c.status) }}><TC raw={c.cur} /></span></div>
+            <div><label>Min</label><span className="v faint"><TC raw={c.min} /></span></div>
+            <div><label>Top-up</label><span className="v faint"><TC raw={c.topup} /></span></div>
+            <div><label>Last</label><span className="v faint">{c.suspended || c.lastReadingMs === null ? '—' : fmtAgo(c.lastReadingMs, now)}</span></div>
+          </div>
+        </button>
+      ))}
+    </div>
+    </>
   );
 }
 
@@ -552,7 +593,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 
   const c = fleet.counts;
   return (
-    <div className="panel" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', overflow: 'hidden' }}>
+    <div className="panel kpi-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', overflow: 'hidden' }}>
       <TripleCell
         label="Deposit balance"
         icon={<Icon name="wallet" size={12} />}
@@ -667,7 +708,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
 
   const c = fleet.counts;
   return (
-    <div className="grid" style={{ gridTemplateColumns: '1fr 340px', alignItems: 'start' }}>
+    <div className="grid fleet-layout" style={{ gridTemplateColumns: '1fr 340px', alignItems: 'start' }}>
       <Panel
         flush
         title="Fleet"
@@ -710,6 +751,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
         }
       >
         <div
+          className="fleet-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',

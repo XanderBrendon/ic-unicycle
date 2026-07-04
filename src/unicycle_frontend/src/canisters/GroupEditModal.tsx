@@ -334,7 +334,7 @@ export function GroupEditModal({
               </span>
             </div>
           )}
-          <table className="tbl">
+          <table className="tbl ge-table">
             <thead>
               <tr>
                 <th style={{ width: 124 }}>State</th>
@@ -408,6 +408,70 @@ export function GroupEditModal({
               })}
             </tbody>
           </table>
+          <div className="ge-cards">
+            {rows.map((r) => {
+              const res = results[r.idText];
+              const invalid = rowInvalid(r);
+              const off = r.state === 'untracked';
+              return (
+                <div className="ge-card" key={r.idText}>
+                  <div className="ge-card-head">
+                    <StateToggle value={r.state} onChange={(v) => patch(r.idText, { state: v })} />
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span className="mono faint" title={r.idText}>{fmtPid(r.idText, 6, 4)}</span>
+                      {res?.ok === true ? (
+                        <Icon name="check" size={14} style={{ color: 'var(--accent-ink)', flex: 'none' }} />
+                      ) : res && res.ok === false ? (
+                        <span title={res.error} style={{ display: 'inline-flex', flex: 'none' }}>
+                          <Icon name="x" size={14} style={{ color: 'var(--crit)' }} />
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                  <label className="ge-field">
+                    <span>Name</span>
+                    <input
+                      className="input"
+                      value={r.name}
+                      maxLength={NICKNAME_MAX}
+                      disabled={off}
+                      onChange={(e) => patch(r.idText, { name: e.target.value })}
+                    />
+                  </label>
+                  <div className="ge-card-nums">
+                    <label className="ge-field">
+                      <span>Min</span>
+                      <div className="input-suffix">
+                        <input
+                          className="input mono"
+                          value={r.min}
+                          disabled={off}
+                          inputMode="decimal"
+                          onChange={(e) => patch(r.idText, { min: e.target.value })}
+                          style={{ paddingRight: 32, borderColor: invalid ? 'var(--crit)' : undefined }}
+                        />
+                        <span className="sfx">TC</span>
+                      </div>
+                    </label>
+                    <label className="ge-field">
+                      <span>Top-up</span>
+                      <div className="input-suffix">
+                        <input
+                          className="input mono"
+                          value={r.topup}
+                          disabled={off}
+                          inputMode="decimal"
+                          onChange={(e) => patch(r.idText, { topup: e.target.value })}
+                          style={{ paddingRight: 32, borderColor: invalid ? 'var(--crit)' : undefined }}
+                        />
+                        <span className="sfx">TC</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           {topError && <ErrorHint message={topError} />}
         </div>
       ) : null}

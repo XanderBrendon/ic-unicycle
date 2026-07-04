@@ -450,7 +450,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
           </>
         }
       >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)' }}>
+        <div className="rg6" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)' }}>
           <AdminMetric label="Owners" value={metrics ? fmtInt(metrics.ownersCount) : '—'} />
           <AdminMetric label="Tracked" value={metrics ? fmtInt(metrics.trackedCanistersCount) : '—'} />
           <AdminMetric label="Readings" value={metrics ? fmtInt(metrics.readingsTotal) : '—'} />
@@ -464,7 +464,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
         </div>
       </Panel>
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid rg2" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
         {/* settings */}
         <Panel
           title="Settings"
@@ -569,7 +569,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
       </div>
 
       {/* fee pool / LP + loyalty */}
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid rg2" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
         <Panel
           title="Fee pool & LP"
           eyebrow="// liquidity"
@@ -580,7 +580,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
             </button>
           }
         >
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0 16px', marginBottom: 12 }}>
+          <div className="grid rg4" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0 16px', marginBottom: 12 }}>
             <div>
               <div className="eyebrow" style={{ marginBottom: 5 }}>Fee pool</div>
               <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>
@@ -615,7 +615,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                 <div className="faint" style={{ fontSize: 11.5 }}>{poolBal.loading ? 'Loading…' : '—'}</div>
               ) : (
                 <>
-                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '0 16px' }}>
+                  <div className="grid rg3" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '0 16px' }}>
                     <PoolBalCell label="In position" icp={poolBal.data.positionIcp} tc={poolBal.data.positionTcycles} />
                     <PoolBalCell label="Unused (not in pool)" icp={poolBal.data.unusedIcp} tc={poolBal.data.unusedTcycles} />
                     <PoolBalCell label="Unclaimed fees" icp={poolBal.data.unclaimedIcp} tc={poolBal.data.unclaimedTcycles} />
@@ -685,7 +685,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
             </button>
           }
         >
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '0 22px', marginBottom: 12 }}>
+          <div className="grid rg2" style={{ gridTemplateColumns: '1fr 1fr', gap: '0 22px', marginBottom: 12 }}>
             <KV k="Total shares">{loyalty ? <TC raw={loyalty.totalSharesTcycles} /> : '—'} TC</KV>
             <KV k="Contributors">{loyalty ? fmtInt(loyalty.contributorCount) : '—'}</KV>
             <KV k="Cumulative surplus">{loyalty ? <TC raw={loyalty.cumulativeSurplusRewardsTcycles} /> : '—'} TC</KV>
@@ -711,7 +711,7 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
 
       {/* service funding */}
       <Panel title="Service funding" eyebrow="// fee routing">
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '0 22px' }}>
+        <div className="grid rg3" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '0 22px' }}>
           <KV k="Primary admin">{funding?.primaryAdmin ? fmtPid(funding.primaryAdmin.toString(), 8, 5) : '—'}</KV>
           <KV k="Funding threshold">{funding ? <TC raw={funding.serviceFundingThresholdTcycles} /> : '—'} TC</KV>
           <KV k="Subaccount balance">{funding ? <TC raw={funding.primaryAdminSubaccountTcycles} /> : '—'} TC</KV>

@@ -43,6 +43,7 @@ export function App() {
   const { route, navigate } = useHashRoute();
   const [addOpen, setAddOpen] = useState(false);
   const [addSnsOpen, setAddSnsOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
 
   const fleet = useFleet(identity);
   const { isAdmin, loading: adminLoading } = useIsAdmin(identity);
@@ -87,6 +88,12 @@ export function App() {
       navigate({ page: 'overview' }, { replace: true });
     }
   }, [route, isAdmin, adminLoading, snsAdminRoots, trackedSnsRoots, navigate]);
+
+  // Close the mobile drawer whenever the route changes — nav items, breadcrumbs,
+  // canister open, and guard redirects all funnel through a route change.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [route]);
 
   if (!identity) {
     return <SignIn onSignIn={signIn} loading={loading} />;
@@ -177,8 +184,9 @@ export function App() {
 
   return (
     <div className="app">
+      {navOpen && <div className="nav-scrim" onClick={() => setNavOpen(false)} />}
       {/* sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${navOpen ? 'open' : ''}`}>
         <div className="brand">
           <span className="brand-mark accent" style={{ color: 'var(--accent-ink)' }}>
             <Icon name="wheel" size={24} />
@@ -187,6 +195,9 @@ export function App() {
             <div className="brand-name">Unicycle</div>
             <div className="brand-sub">cycle autopilot</div>
           </div>
+          <button className="iconbtn brand-close" onClick={() => setNavOpen(false)} title="Close menu">
+            <Icon name="x" size={16} />
+          </button>
         </div>
         <nav className="nav">
           {nav.map((group, gi) => (
@@ -207,6 +218,9 @@ export function App() {
       {/* main */}
       <div className="main">
         <header className="topbar">
+          <button className="iconbtn nav-toggle" onClick={() => setNavOpen(true)} title="Menu">
+            <Icon name="menu" size={17} />
+          </button>
           <div className="crumbs">
             <Icon name="wheel" size={14} style={{ color: 'var(--text-2)' }} />
             {crumbs.map((c, i) => (

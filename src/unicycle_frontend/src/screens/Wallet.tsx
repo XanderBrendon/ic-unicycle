@@ -63,7 +63,7 @@ function TokenRow({
   const builtin = isBuiltIn(token);
   const b = balanceText(balance, token);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px var(--pad)', borderBottom: '1px solid var(--border)' }}>
+    <div className="token-row" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px var(--pad)', borderBottom: '1px solid var(--border)' }}>
       <div
         style={{
           width: 34,
@@ -93,7 +93,7 @@ function TokenRow({
         {b.value}
         <span style={{ color: 'var(--text-2)', fontSize: 11, fontWeight: 500 }}> {b.suffix}</span>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div className="row-actions" style={{ display: 'flex', gap: 6 }}>
         {kind === 'local' && builtin && (
           <button className="btn sm" onClick={onDeposit}>
             <Icon name="download" size={13} />
@@ -603,7 +603,7 @@ export function Wallet({ identity }: WalletProps) {
       <Panel>
         <FlowDiagram />
       </Panel>
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid two-col" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
         <Panel
           flush
           title="Local wallet"

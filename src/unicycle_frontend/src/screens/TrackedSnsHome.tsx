@@ -98,7 +98,7 @@ export function TrackedSnsHome({
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 'var(--gap)' }}>
+      <div className="sns-head" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 'var(--gap)' }}>
         <Icon name="shield" size={18} />
         <div>
           <div style={{ fontSize: 16, fontWeight: 600 }}>{info?.name ?? fmtPid(rootText, 6, 4)}</div>

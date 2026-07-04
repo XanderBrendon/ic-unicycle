@@ -438,7 +438,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="detail-actions" style={{ display: 'flex', gap: 8 }}>
           <button className="btn" onClick={recordNow} disabled={busy}>
             <Icon name="refresh" size={14} />
             Record now
@@ -480,7 +480,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
         </div>
       )}
 
-      <div className="grid" style={{ gridTemplateColumns: '300px 1fr', alignItems: 'stretch' }}>
+      <div className="grid detail-grid" style={{ gridTemplateColumns: '300px 1fr', alignItems: 'stretch' }}>
         <Panel title="Health" eyebrow="// current vs threshold">
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '6px 0' }}>
             <HealthGauge cur={cur} min={min} status={status} style={GAUGE_STYLE} size={120} />
@@ -504,6 +504,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
         </Panel>
 
         <Panel
+          className="hist-panel"
           title="Cycle history"
           eyebrow={`// ${data.readings.length} readings`}
           style={{ display: 'flex', flexDirection: 'column' }}
@@ -528,7 +529,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
               )}
             </div>
           ) : (
-            <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            <div className="hist-table-wrap" style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>
               <table className="tbl">
                 <thead>
                   <tr>

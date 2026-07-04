@@ -63,7 +63,7 @@ export function AdminTrends({ identity, metrics }: AdminTrendsProps) {
           </button>
         }
       >
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+        <div className="rg5" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
           {[
             { label: 'Memory', value: metrics ? fmtBytes(metrics.memorySizeBytes) : '—' },
             { label: 'Heap', value: metrics ? fmtBytes(metrics.heapSizeBytes) : '—' },
@@ -94,7 +94,7 @@ export function AdminTrends({ identity, metrics }: AdminTrendsProps) {
       ) : (
         <>
           {/* level series */}
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <div className="grid rg4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <TrendPanel title="Fee pool" latest={latest ? <TC raw={latest.feePoolBalanceTcycles} /> : '—'} unit="TC">
               <Sparkline data={levelSeries(snaps, (s) => toTC(s.feePoolBalanceTcycles))} w={220} h={56} fill />
             </TrendPanel>
@@ -110,7 +110,7 @@ export function AdminTrends({ identity, metrics }: AdminTrendsProps) {
           </div>
 
           {/* per-interval deltas of the cumulative counters */}
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="grid rg3" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
             <TrendPanel title="Fees collected / interval" latest={latest ? <TC raw={latest.cumulativeFeesTcycles} /> : '—'} unit="TC total">
               <MiniBars data={deltaSeries(snaps, (s) => s.cumulativeFeesTcycles).map((v) => v / 1e12)} w={300} h={56} />
             </TrendPanel>
@@ -123,7 +123,7 @@ export function AdminTrends({ identity, metrics }: AdminTrendsProps) {
           </div>
 
           {/* loyalty counters over time */}
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          <div className="grid rg3" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
             <TrendPanel title="Surplus shared" latest={latest ? <TC raw={latest.cumulativeSurplusRewardsTcycles} /> : '—'} unit="TC total">
               <Sparkline data={levelSeries(snaps, (s) => toTC(s.cumulativeSurplusRewardsTcycles))} w={300} h={56} fill />
             </TrendPanel>

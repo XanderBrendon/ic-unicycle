@@ -198,7 +198,7 @@ export function HealthGauge({
   return <RingGauge cur={cur} min={min} status={status} size={size} showValue={showValue} />;
 }
 
-export function FuelBar({ cur, min, status, width = 120 }: { cur: bigint | null; min: bigint; status: Status; width?: number }) {
+export function FuelBar({ cur, min, status, width = 120 }: { cur: bigint | null; min: bigint; status: Status; width?: number | string }) {
   const { ratio, thr } = gaugeRatio(cur, min);
   const cls = status === 'crit' ? 'crit' : status === 'warn' ? 'warn' : '';
   return (
