@@ -12,6 +12,7 @@
 import Types "../types";
 import History "History";
 import Durations "Durations";
+import NumFmt "NumFmt";
 import Principal "mo:core/Principal";
 import Nat "mo:core/Nat";
 
@@ -29,7 +30,7 @@ module {
         case null { out #= " no successful readings yet" };
         case (?latest) {
           let balNow = History.okBal(latest);
-          out #= " balance " # balNow.toText();
+          out #= " balance " # NumFmt.tcyclesE12s(balNow);
           for (days in RANGES_DAYS.vals()) {
             let since = if (now > days * Durations.DAY_NS) { (now - days * Durations.DAY_NS) : Nat } else { 0 };
             let cell = switch (History.oldestOkSince(readings, since)) {
@@ -37,8 +38,8 @@ module {
                 if (start.recordedAt >= latest.recordedAt) { "n/a" }
                 else {
                   let balStart = History.okBal(start);
-                  if (balStart >= balNow) { "-" # (balStart - balNow : Nat).toText() }
-                  else { "+" # (balNow - balStart : Nat).toText() };
+                  if (balStart >= balNow) { "-" # NumFmt.tcyclesE12s(balStart - balNow) }
+                  else { "+" # NumFmt.tcyclesE12s(balNow - balStart) };
                 };
               };
               case null { "n/a" };

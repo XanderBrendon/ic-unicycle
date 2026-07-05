@@ -33,6 +33,7 @@ import SwapMath "lib/SwapMath";
 import History "lib/History";
 import DrainDetection "lib/DrainDetection";
 import Report "lib/Report";
+import NumFmt "lib/NumFmt";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
@@ -3662,8 +3663,8 @@ persistent actor class Unicycle(
     if (arg.depositAmountE8s == 0) return #Err("depositAmountE8s must be > 0 when minBalanceE8s > 0");
     #Ok(
       "Auto-deposit: when this SNS's Unicycle ICP deposit balance falls below "
-      # arg.minBalanceE8s.toText() # " e8s, submit a proposal to transfer "
-      # arg.depositAmountE8s.toText() # " e8s ICP from the SNS treasury. Cycle usage report "
+      # NumFmt.icpE8s(arg.minBalanceE8s) # ", submit a proposal to transfer "
+      # NumFmt.icpE8s(arg.depositAmountE8s) # " from the SNS treasury. Cycle usage report "
       # (if (arg.includeReport) { "included." } else { "omitted." })
     );
   };
@@ -4182,10 +4183,10 @@ persistent actor class Unicycle(
     let bal = await icpBalanceOf(root);
     if (bal >= cfg.minBalanceE8s) return mk(bal, #skippedAboveThreshold);
     let neuronId = switch (snsProposalNeuron.get(root)) { case (?n) n; case null { return mk(bal, #skippedNoNeuron) } };
-    var summary = "The SNS's Unicycle ICP deposit balance (" # bal.toText()
-      # " e8s) is below the configured minimum (" # cfg.minBalanceE8s.toText()
-      # " e8s). This proposal transfers " # cfg.depositAmountE8s.toText()
-      # " e8s ICP from the SNS treasury into the SNS's Unicycle deposit subaccount.";
+    var summary = "The SNS's Unicycle ICP deposit balance " # NumFmt.icpE8s(bal)
+      # " is below the configured minimum " # NumFmt.icpE8s(cfg.minBalanceE8s)
+      # ". This proposal transfers " # NumFmt.icpE8s(cfg.depositAmountE8s)
+      # " from the SNS treasury into the SNS's Unicycle deposit subaccount.";
     if (cfg.includeReport) { summary #= "\n\n" # buildCycleUsageReport(root) };
     let transfer : Types.SnsTransferTreasuryFunds = {
       from_treasury = 1;        // ICP treasury (verified against the live candid)

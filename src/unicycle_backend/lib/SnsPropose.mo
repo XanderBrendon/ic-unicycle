@@ -1,6 +1,7 @@
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
 import Types "../types";
+import NumFmt "NumFmt";
 
 // Pure text builders for the admin-initiated config-change proposals
 // (asSnsPropose* in main.mo). Summaries render a field-by-field diff of the
@@ -10,14 +11,7 @@ module {
 
   // e8s → human ICP text: "3 ICP", "1.5 ICP", "0.00000001 ICP".
   public func icpText(e8s : Nat) : Text {
-    let whole = e8s / 100_000_000;
-    var frac = e8s % 100_000_000;
-    if (frac == 0) return Nat.toText(whole) # " ICP";
-    var digits = 8;
-    while (frac % 10 == 0) { frac /= 10; digits -= 1 };
-    var fracText = Nat.toText(frac);
-    while (fracText.size() < digits) { fracText := "0" # fracText };
-    Nat.toText(whole) # "." # fracText # " ICP";
+    NumFmt.decimal(e8s, 8) # " ICP";
   };
 
   // One diff line: "name: old → new", "name: value (unchanged)", or
