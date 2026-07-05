@@ -2,7 +2,8 @@ import { AuthClient } from '@icp-sdk/auth/client';
 import type { Identity } from '@icp-sdk/core/agent';
 import type { Principal } from '@icp-sdk/core/principal';
 
-const MAX_TIME_TO_LIVE_NS = BigInt(8) * BigInt(3_600_000_000_000);
+// II delegation lifetime: 7 days (well under II's 30-day maximum).
+const MAX_TIME_TO_LIVE_NS = BigInt(7) * BigInt(24) * BigInt(3_600_000_000_000);
 
 // Use the mainnet II frontend (`https://id.ai`) in both local and production.
 // `icp-cli` ≥ 0.2.4 sets up the local replica to validate signatures from
@@ -67,4 +68,29 @@ export async function login(): Promise<Identity> {
 
 export async function logout(): Promise<void> {
   await getAuthClient().signOut();
+}
+
+// True when an agent/replica error is caused by an expired II delegation. The
+// replica rejects such calls with e.g. "Invalid delegation expiry: Specified
+// sender delegation has expired". `isAuthenticated()` only reflects expiry at
+// page load, so a session that expires mid-use surfaces here instead.
+export function isDelegationExpiredError(err: unknown): boolean {
+  const message =
+    err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
+  return /invalid delegation expiry|delegation has expired/i.test(message);
+}
+
+// Notify listeners (see useAuth) that the current session's delegation expired
+// so the app can drop back to the sign-in screen. There is no auth context to
+// prop-drill through, so backend calls signal expiry via this module-level bus.
+type AuthExpiredListener = () => void;
+const authExpiredListeners = new Set<AuthExpiredListener>();
+
+export function onAuthExpired(listener: AuthExpiredListener): () => void {
+  authExpiredListeners.add(listener);
+  return () => authExpiredListeners.delete(listener);
+}
+
+export function notifyAuthExpired(): void {
+  for (const listener of authExpiredListeners) listener();
 }
