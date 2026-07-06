@@ -42,7 +42,7 @@ export interface FleetCanister {
   suspendedUntilMs: number | null;
   cur: bigint | null; // latest ok reading, or null if none yet
   status: Status;
-  burnPerDayCycles: number; // per-canister drops-only burn over the window
+  burnPerDayCycles: number | null; // per-canister drops-only burn/day; null while < 1 day of history ("measuring")
   estDaysToTopUp: number | null; // estimated days until cur hits min (null if not estimable)
   horizon: Horizon; // bucket for the "Upcoming top ups" card
   readings: CycleReading[]; // ascending by recordedAt
@@ -79,7 +79,7 @@ export interface Fleet {
   canisters: FleetCanister[] | null;
   counts: FleetCounts;
   activity: FleetActivityItem[];
-  dailyBurnCycles: number;
+  dailyBurnCycles: number | null; // fleet burn/day; null only when every canister is still "measuring"
   volume14: number[]; // TC per day, oldest → newest (14 buckets)
   toppedUp24Cycles: bigint;
   toppedUp7dCycles: bigint;
@@ -170,9 +170,19 @@ function buildCanister(
 }
 
 // Fleet daily burn (cycles/day) = sum of the per-canister drops-only burns.
-function dailyBurn(canisters: FleetCanister[]): number {
+// Canisters still "measuring" (null, < 1 day of history) are excluded from the
+// sum rather than counted as 0, so a single new canister in an established fleet
+// contributes nothing for at most a day instead of skewing the total. Null only
+// when every canister is measuring; an empty fleet is 0, not measuring.
+function dailyBurn(canisters: FleetCanister[]): number | null {
   let total = 0;
-  for (const c of canisters) total += c.burnPerDayCycles;
+  let measured = 0;
+  for (const c of canisters) {
+    if (c.burnPerDayCycles === null) continue;
+    total += c.burnPerDayCycles;
+    measured++;
+  }
+  if (canisters.length > 0 && measured === 0) return null;
   return total;
 }
 
@@ -228,7 +238,7 @@ export function useFleet(
         canisters: null as FleetCanister[] | null,
         counts: EMPTY_COUNTS,
         activity: [] as FleetActivityItem[],
-        dailyBurnCycles: 0,
+        dailyBurnCycles: null,
         volume14: new Array(14).fill(0) as number[],
         toppedUp24Cycles: 0n,
         toppedUp7dCycles: 0n,

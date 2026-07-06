@@ -551,7 +551,8 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
   const depositTC = deposit.balances.TCYCLES;
   const depositICP = deposit.balances.ICP;
   const burnCyclesPerDay = fleet.dailyBurnCycles;
-  const burnTCPerDay = burnCyclesPerDay / TC_UNIT;
+  const burnMeasuring = burnCyclesPerDay === null; // < 1 day of history across the whole fleet
+  const burnTCPerDay = burnCyclesPerDay === null ? null : burnCyclesPerDay / TC_UNIT;
 
   // ICP→cycles rate: live pool quote, falling back to the most recent realized
   // swap rate from top-ups. ICP is folded into the deposit's TC-equivalent and
@@ -576,15 +577,20 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
   // the cap we collapse to the same ∞ / "stable" display as a zero-burn fleet.
   const MAX_RUNWAY_DAYS = 36_500; // 100 years
   const rawRunwayDays =
-    totalCycles !== null && burnCyclesPerDay > 0 ? Math.floor(totalCycles / burnCyclesPerDay) : null;
+    totalCycles !== null && burnCyclesPerDay !== null && burnCyclesPerDay > 0
+      ? Math.floor(totalCycles / burnCyclesPerDay)
+      : null;
   const runwayDays = rawRunwayDays !== null && rawRunwayDays <= MAX_RUNWAY_DAYS ? rawRunwayDays : null;
-  const runwayValue = depositTC === null ? '—' : runwayDays === null ? '∞' : runwayDays;
+  const runwayValue =
+    depositTC === null ? '—' : burnMeasuring ? '—' : runwayDays === null ? '∞' : runwayDays;
   const runwaySub =
     depositTC === null
       ? 'awaiting balance'
-      : runwayDays === null
-        ? 'stable at current burn'
-        : `depletes ${fmtDate(nowMs + runwayDays * DAY_MS)}`;
+      : burnMeasuring
+        ? 'measuring burn…'
+        : runwayDays === null
+          ? 'stable at current burn'
+          : `depletes ${fmtDate(nowMs + runwayDays * DAY_MS)}`;
   const runwayBalanceTC = tcEquivNum ?? (depositTC === null ? 0 : toTC(depositTC));
   const runwayHistory =
     historyEvents && depositTC !== null
@@ -602,7 +608,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
           { value: fmtICP(depositICP, 2), caption: 'ICP' },
           { value: tcEquivNum === null ? '—' : fmtTC(tcEquivNum), caption: '≈ TC total', color: 'var(--accent-ink)' },
         ]}
-        sub={<><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
+        sub={burnMeasuring ? 'measuring burn…' : <><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
       >
         <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
           ICP→TC rate is based on the current swap price and may change unpredictably.
@@ -617,7 +623,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
         icon={<Icon name="flame" size={12} style={{ color: 'var(--accent-ink)' }} />}
       >
         <div style={{ marginTop: 2, position: 'relative' }}>
-          <AreaChart balance={runwayBalanceTC} burnPerDay={burnTCPerDay} history={runwayHistory} nowMs={nowMs} w={170} h={42} />
+          <AreaChart balance={runwayBalanceTC} burnPerDay={burnTCPerDay ?? 0} history={runwayHistory} nowMs={nowMs} w={170} h={42} />
         </div>
         <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
           Estimates based on recent usage and conversion rates.

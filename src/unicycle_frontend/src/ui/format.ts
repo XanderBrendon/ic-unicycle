@@ -148,34 +148,49 @@ export const STATUS_ORDER: Record<Status, number> = {
 // aggregate and the per-canister time-to-top-up estimate). 7 days smooths spikes.
 export const BURN_WINDOW_DAYS = 7;
 
+// Minimum observed history before a burn rate is reported. Below this the rate
+// would be extrapolated from a single ~4h sample and swing wildly, so we return
+// null ("measuring") instead. A newly-tracked canister reads "measuring" for its
+// first day, then reports a real rate.
+export const BURN_MIN_SPAN_DAYS = 1;
+
 // Drops-only daily burn (cycles/day) for one canister over the trailing window:
-// the sum of negative reading deltas ÷ window length. Top-up jumps (positive
-// deltas) don't count. 0 when there's no usable drop in the window. `readingsAsc`
-// must be ascending by `recordedAt`.
+// the sum of negative reading deltas ÷ the span actually observed (not a fixed 7
+// days), so a canister with only N days of history divides by N — no underestimate
+// while the window fills. Top-up jumps (positive deltas) don't count. Returns null
+// when < BURN_MIN_SPAN_DAYS of usable history ("measuring"), and 0 when ≥1 day was
+// observed with no drops (genuinely stable). `readingsAsc` must be ascending by
+// `recordedAt`.
 export function canisterBurnPerDayCycles(
   readingsAsc: CycleReading[],
   nowMs: number,
   windowDays = BURN_WINDOW_DAYS,
-): number {
+): number | null {
   const windowStartMs = nowMs - windowDays * DAY_MS;
   let totalDrop = 0;
+  let spanMs = 0;
   for (let i = 1; i < readingsAsc.length; i++) {
     const prev = readingsAsc[i - 1].result;
     const cur = readingsAsc[i].result;
     if (prev.__kind__ !== 'ok' || cur.__kind__ !== 'ok') continue;
-    if (nsToMs(readingsAsc[i].recordedAt) < windowStartMs) continue;
+    const curMs = nsToMs(readingsAsc[i].recordedAt);
+    if (curMs < windowStartMs) continue;
+    spanMs += curMs - nsToMs(readingsAsc[i - 1].recordedAt);
     if (cur.ok < prev.ok) totalDrop += Number(prev.ok - cur.ok);
   }
-  return totalDrop / windowDays;
+  const spanDays = spanMs / DAY_MS;
+  if (spanDays < BURN_MIN_SPAN_DAYS) return null; // not enough history yet
+  return totalDrop / spanDays;
 }
 
 // Estimated days until `cur` decays to the top-up threshold `min` at
-// `burnPerDayCycles`. 0 if already at/below `min`; null when not estimable
-// (no balance, or no positive burn observed yet).
-export function estDaysToTopUp(cur: bigint | null, min: bigint, burnPerDayCycles: number): number | null {
+// `burnPerDayCycles`. 0 if already at/below `min`; null when not estimable (no
+// balance, or no positive burn observed yet — including a null/"measuring" burn
+// while history is still building).
+export function estDaysToTopUp(cur: bigint | null, min: bigint, burnPerDayCycles: number | null): number | null {
   if (cur === null) return null;
   if (cur <= min) return 0;
-  if (!(burnPerDayCycles > 0)) return null;
+  if (burnPerDayCycles === null || !(burnPerDayCycles > 0)) return null;
   return Number(cur - min) / burnPerDayCycles;
 }
 
