@@ -587,7 +587,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
     depositTC === null
       ? 'awaiting balance'
       : burnMeasuring
-        ? 'measuring burn…'
+        ? 'needs ≥1 day of burn history'
         : runwayDays === null
           ? 'stable at current burn'
           : `depletes ${fmtDate(nowMs + runwayDays * DAY_MS)}`;
@@ -608,7 +608,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
           { value: fmtICP(depositICP, 2), caption: 'ICP' },
           { value: tcEquivNum === null ? '—' : fmtTC(tcEquivNum), caption: '≈ TC total', color: 'var(--accent-ink)' },
         ]}
-        sub={burnMeasuring ? 'measuring burn…' : <><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
+        sub={burnMeasuring ? 'needs ≥1 day of burn history' : <><TC raw={burnTCPerDay} dp={2} /> TC/day burn</>}
       >
         <div className="faint mono" style={{ fontSize: 9, marginTop: 4, lineHeight: 1.4 }}>
           ICP→TC rate is based on the current swap price and may change unpredictably.
