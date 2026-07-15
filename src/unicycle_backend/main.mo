@@ -40,15 +40,6 @@ import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
 
-// ONE-SHOT (2026-07-15): seed `pendingHarvestIcp` with the ICP leg stranded
-// by the failed first production harvest (5_597_725 e8s auto-withdrawn by the
-// pool's claim to the backend's default ICP account; see the 2026-07-15
-// harvest design doc). Runs on upgrade only; fresh installs initialize 0.
-// REMOVE IN THE RELEASE AFTER THE PRODUCTION DEPLOY — left in place it
-// re-runs on every upgrade and clobbers the counter.
-(with migration = func(_ : {}) : { var pendingHarvestIcp : Nat } {
-  { var pendingHarvestIcp = 5_597_725 };
-})
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -2039,13 +2030,14 @@ persistent actor class Unicycle(
   };
 
   // ---------------------------------------------------------------------------
-  // Loyalty harvest saga (US18). Claims the LP position's accrued trading fees,
-  // consolidates them to TCYCLES, takes the service-funding slice first (admin,
-  // no accrual), leaves the remaining surplus in the fee pool for US16's drain
-  // to compound into the position, and advances the reward-per-share
-  // accumulator with the surplus. Best-effort like `runLpDrain`: every failure
-  // lands a `#err` HarvestEvent and releases the guard, never raising to the
-  // top-up flow.
+  // Loyalty harvest saga (US18, reworked 2026-07-15). Claims the LP position's
+  // accrued trading fees — the pool auto-withdraws both legs to the backend's
+  // default ledger accounts — then credits the reward-per-share accumulator
+  // with netTc + the ICP leg valued at the CMC peg. No swap, no withdraw, no
+  // admin slice: the TCYCLES leg lands directly in the fee pool, the ICP leg
+  // is tracked via pendingHarvestIcp and paired into the LP by the next US16
+  // drain. Best-effort like `runLpDrain`: every failure lands a `#err`
+  // HarvestEvent and releases the guard, never raising to the top-up flow.
   // ---------------------------------------------------------------------------
 
   func recordHarvestEvent(event : HarvestEvent) {
@@ -2056,7 +2048,10 @@ persistent actor class Unicycle(
     };
   };
 
-  // Claim the position's accrued fees into the backend's unused pool balance.
+  // Claim the position's accrued fees. The pool auto-withdraws both legs to
+  // the backend's default ledger accounts (net of one ledger fee each, as an
+  // enqueued transfer); returned amounts are GROSS. Nothing stays in the
+  // pool's unused balance — see icpswap_pool.did's behaviour notes.
   func claimPositionFees(positionId : Nat) : async { #ok : { amount0 : Nat; amount1 : Nat }; #err : Text } {
     try {
       switch (await icpSwapPool().claim({ positionId })) {
@@ -2122,26 +2117,6 @@ persistent actor class Unicycle(
     } catch (e) { #err("pool withdraw unreachable: " # e.message()) };
   };
 
-  // Move `amount` TCYCLES from the fee pool (backend default account) to one of
-  // the backend's own deposit subaccounts. The ledger fee is paid out of the
-  // fee pool. Used by the harvest's admin-first service-funding slice.
-  func transferFromFeePool(amount : Nat, toSubaccount : Blob) : async { #ok; #err : Text } {
-    let ledger : ICRC1.Self = actor (Tokens.ledgerCanisterId(#TCYCLES).toText());
-    try {
-      switch (await ledger.icrc1_transfer({
-        from_subaccount = null;
-        to = { owner = Principal.fromActor(self); subaccount = ?toSubaccount };
-        amount;
-        fee = ?tcyclesLedgerFee;
-        memo = null;
-        created_at_time = null;
-      })) {
-        case (#Ok _)    { #ok };
-        case (#Err err) { #err("admin slice transfer failed: " # debug_show err) };
-      };
-    } catch (e) { #err("tcycles ledger unreachable (admin slice): " # e.message()) };
-  };
-
   // Value the position's pending fees against the harvest threshold, consulting
   // the CMC rate only when the TCYCLES leg alone doesn't already clear it and
   // there is ICP owed (US18 review). Callers invoke it only when the threshold is
@@ -2179,7 +2154,28 @@ persistent actor class Unicycle(
     };
     let now = Int.abs(Time.now());
 
-    // 1. claim accrued fees into the pool's unused balance (ICP + TCYCLES).
+    // 1. Fetch the CMC rate BEFORE claiming. Valuation is the only fallible
+    //    step besides the claim itself, so hoisting it makes the saga
+    //    effectively atomic: once the claim lands, nothing else can fail.
+    let xpe = switch (await cmcCyclesPerE8s()) {
+      case (#ok 0) {
+        recordHarvestEvent({ at = now; claimedIcp = 0; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #err("no rate to value ICP leg: cmc rate zero") });
+        harvestInFlight := false;
+        return;
+      };
+      case (#ok r) { r };
+      case (#err e) {
+        recordHarvestEvent({ at = now; claimedIcp = 0; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #err("no rate to value ICP leg: " # e) });
+        harvestInFlight := false;
+        return;
+      };
+    };
+
+    // 2. Claim. The pool AUTO-WITHDRAWS both legs to the backend's default
+    //    ledger accounts, net of one ledger fee each: TCYCLES land in the fee
+    //    pool (their final destination — US16's drain compounds them), ICP
+    //    lands in the default ICP account and is tracked via
+    //    pendingHarvestIcp for the next drain to pair into the position.
     let claimed = switch (await claimPositionFees(positionId)) {
       case (#err msg) {
         recordHarvestEvent({ at = now; claimedIcp = 0; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #err("claim: " # msg) });
@@ -2188,84 +2184,21 @@ persistent actor class Unicycle(
       };
       case (#ok amts) { amts };
     };
-    let claimedIcp = claimed.amount0;
+    let netIcp = if (claimed.amount0 > icpLedgerFee) { claimed.amount0 - icpLedgerFee : Nat } else { 0 };
+    let netTc = if (claimed.amount1 > tcyclesLedgerFee) { claimed.amount1 - tcyclesLedgerFee : Nat } else { 0 };
+    pendingHarvestIcp += netIcp;
 
-    // 2. swap claimed ICP → TCYCLES in-pool (skip if none claimed).
-    let swappedTcycles = if (claimedIcp == 0) { 0 } else {
-      switch (await swapIcpForTcycles(claimedIcp)) {
-        case (#err msg) {
-          // The claimed fees sit in the pool's unused balance and the swap
-          // didn't run — pull both legs out so a floored/failed swap (FIN-1)
-          // doesn't strand them: TCYCLES rejoin the fee pool (the next drain
-          // folds them into the LP); ICP returns to the backend's own account
-          // rather than sitting in the pool's opaque unused balance.
-          let recTc = if (claimed.amount1 > tcyclesLedgerFee) {
-            switch (await withdrawTcyclesToFeePool(claimed.amount1)) { case (#ok _) { "" }; case (#err w) { "; tcycles recover failed: " # w } };
-          } else { "" };
-          let recIcp = if (claimedIcp > icpLedgerFee) {
-            switch (await withdrawIcpFromPool(claimedIcp)) { case (#ok _) { "" }; case (#err w) { "; icp recover failed: " # w } };
-          } else { "" };
-          recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #err("swap: " # msg # recTc # recIcp) });
-          harvestInFlight := false;
-          return;
-        };
-        case (#ok n) { n };
-      };
-    };
-    let poolTcycles = claimed.amount1 + swappedTcycles;
-    if (poolTcycles == 0) {
-      recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #ok });
-      harvestInFlight := false;
-      return;
-    };
-
-    // 3. withdraw the consolidated TCYCLES to the fee pool (default account).
-    let total = switch (await withdrawTcyclesToFeePool(poolTcycles)) {
-      case (#err msg) {
-        recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #err("withdraw: " # msg) });
-        harvestInFlight := false;
-        return;
-      };
-      case (#ok n) { n };
-    };
-    if (total == 0) {
-      recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = 0; toAdmin = 0; toSurplus = 0; outcome = #ok });
-      harvestInFlight := false;
-      return;
-    };
-
-    // 4. admin-first slice (reuse US17 primary-admin + threshold); no accrual.
-    //    On transfer failure the slice stays in the fee pool and falls through
-    //    to the surplus, so toAdmin reflects only what actually left the pool.
-    let toAdmin = switch (primaryAdmin) {
-      case (?admin) {
-        let bal = await tcyclesBalanceOf(admin);
-        let need = if (settings.serviceFundingThresholdTcycles > bal) { settings.serviceFundingThresholdTcycles - bal : Nat } else { 0 };
-        let slice = Nat.min(total, need);
-        if (slice > 0) {
-          switch (await transferFromFeePool(slice, Subaccount.ofPrincipal(admin))) {
-            case (#ok)     { recordBalanceEvent(admin, #TCYCLES, slice, #credit, #serviceFunding); slice };
-            case (#err _)  { 0 };
-          };
-        } else { 0 };
-      };
-      case null { 0 };
-    };
-    // The admin-slice transfer paid an extra `tcyclesLedgerFee` out of the fee
-    // pool, so the tokens actually left for users are `total - toAdmin - fee`.
-    // Credit the accumulator with that conservative amount (not `total -
-    // toAdmin`) so cumulative credited surplus never exceeds what lands in the
-    // LP. Saturate at 0 for the edge where the slice consumes nearly all of it.
-    let adminCost = if (toAdmin > 0) { toAdmin + tcyclesLedgerFee } else { 0 };
-    let surplus = if (total > adminCost) { total - adminCost : Nat } else { 0 }; // remains in the fee pool → US16 drain pairs it into the LP
-
-    // 5. advance the accumulator (skip when no shares exist yet — the surplus
-    //    still drains into the LP, just uncredited).
+    // 3. Credit: value the ICP leg at the CMC peg instead of swapping it —
+    //    manipulation-proof, and it slightly undervalues vs. the pool (the
+    //    safe direction: credited surplus never exceeds what the drain
+    //    ultimately lands in the LP). No service-funding slice: US17's
+    //    per-top-up redirection is the funding path (see 2026-07-15 design).
+    let surplus = netTc + SwapMath.expectedTcyclesOut(netIcp, xpe);
     if (surplus > 0 and cumulativeFeesTcycles > 0) {
       accRewardPerShare := Loyalty.advance(accRewardPerShare, surplus, cumulativeFeesTcycles);
       cumulativeSurplusRewardsTcycles += surplus;
     };
-    recordHarvestEvent({ at = now; claimedIcp; claimedTcycles = total; toAdmin; toSurplus = surplus; outcome = #ok });
+    recordHarvestEvent({ at = now; claimedIcp = claimed.amount0; claimedTcycles = surplus; toAdmin = 0; toSurplus = surplus; outcome = #ok });
     harvestInFlight := false;
   };
 
@@ -4698,6 +4631,22 @@ persistent actor class Unicycle(
     });
   };
 
+  // Admin correction for the tracked harvested-ICP counter (2026-07-15 harvest
+  // rework). Sets `pendingHarvestIcp` outright. Used once after the 2026-07
+  // incident deploy to fold the stranded claimed ICP (5_597_725 e8s) into the
+  // next drain — a `(with migration = …)` seed was tried first and abandoned:
+  // while attached, every subsequent upgrade of the same binary traps with
+  // "Memory-incompatible program upgrade". Also reconciles the counter's
+  // deliberate conservative drift (failed drain legs shave fees). The value
+  // set must never exceed the backend-owned ICP in the default account.
+  public shared ({ caller }) func adminSetPendingHarvestIcp(amount : Nat) : async Result.Result<(), AdminError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    if (not isAdmin(caller)) return #err(#notAdmin);
+    log(#info, #admin, "adminSetPendingHarvestIcp " # amount.toText() # " (was " # pendingHarvestIcp.toText() # ")", ?caller);
+    pendingHarvestIcp := amount;
+    #ok();
+  };
+
   // Admin-invoked harvest trigger (US18). Runs the harvest saga and returns the
   // event it just recorded (or a synthesised no-op event if the saga was a
   // guarded no-op). Same admin gating as the other admin-* surfaces.
@@ -5004,6 +4953,7 @@ persistent actor class Unicycle(
         #adminListRecentTopUps : Any;
         #adminRemoveCanister : Any;
         #adminSeedDrainFixture : Any;
+        #adminSetPendingHarvestIcp : Any;
         #adminSnsDeregister : Any;
         #adminSnsRunDepositCheck : Any;
         #adminSnsRunDrainAlertCheck : Any;
@@ -5103,6 +5053,7 @@ persistent actor class Unicycle(
         or #adminSnsRunDepositCheck _ or #adminSnsRunReportCheck _
         or #adminSnsRunDrainAlertCheck _ or #adminSeedDrainFixture _
         or #adminRemoveCanister _ or #adminSnsDeregister _
+        or #adminSetPendingHarvestIcp _
       ) { isAdmin(caller) };
 
       // SNS governance-only execute twins: legitimate callers are governance

@@ -73,6 +73,7 @@ type Unicycle =
    adminRemoveCanister: (owner: principal, canisterId: principal) -> (Result_25);
    adminSeedDrainFixture: (owner: principal, canisterId: principal, points:
     vec DrainSeedPoint) -> (Result_3);
+   adminSetPendingHarvestIcp: (amount: nat) -> (Result_3);
    adminSnsRunDepositCheck: (governance: principal) -> (Result_13);
    adminSnsRunDrainAlertCheck: (governance: principal) -> (Result_12);
    adminSnsDeregister: (governance: principal) -> (Result_DeregisterReport);

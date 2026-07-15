@@ -587,10 +587,10 @@ module {
 
   public type HarvestEvent = {
     at : Int;
-    claimedIcp : Nat; // token0 claimed from the position
-    claimedTcycles : Nat; // token1 + ICP-swap output, total TCYCLES realised
-    toAdmin : Nat; // service-funding slice sent to the primary admin
-    toSurplus : Nat; // remainder shared to users / drained to the LP
+    claimedIcp : Nat; // token0 claimed from the position (gross)
+    claimedTcycles : Nat; // net token1 + ICP leg valued at the CMC peg — total TCYCLES credited
+    toAdmin : Nat; // always 0 since 2026-07-15 (harvest admin slice removed; schema-frozen field)
+    toSurplus : Nat; // surplus credited to users (== claimedTcycles since the slice was removed)
     outcome : { #ok; #err : Text };
   };
 
