@@ -569,6 +569,11 @@ persistent actor class Unicycle(
   var harvestHistory : [HarvestEvent] = [];
   transient var harvestInFlight : Bool = false;
 
+  // Minimum tracked harvest ICP (e8s) worth depositing into the pool — below
+  // this the ICP leg is skipped and the counter accumulates (a deposit costs
+  // 2 x icpLedgerFee; don't spend fees on dust).
+  let LP_MIN_ICP_DEPOSIT : Nat = 1_000_000; // 0.01 ICP
+
   // Newest-first capped audit log of drain attempts (success + failure).
   let MAX_LP_EVENTS : Nat = 30;
   var lpHistory : [LpEvent] = [];
@@ -1701,8 +1706,10 @@ persistent actor class Unicycle(
     // accumulated here; the next trigger re-aggregates them. The per-pair
     // flags carried over from Pass 1's `#insufficientFunds` outcomes must be
     // released on this drop, otherwise they leak forever and block both
-    // future top-ups and `removeCanister` for those pairs.
-    if (groupSwapInFlight) {
+    // future top-ups and `removeCanister` for those pairs. Also yields to a
+    // running LP drain — shared ICP-ledger allowance slot (2026-07-15
+    // design, D4); check-and-skip, never wait.
+    if (groupSwapInFlight or lpDrainInFlight) {
       for (d in swapDemand.values()) {
         inFlightRemove(d.owner, d.canisterId);
       };
@@ -1863,11 +1870,13 @@ persistent actor class Unicycle(
   };
 
   // ---------------------------------------------------------------------------
-  // LP routing saga (US16). Drains the fee pool (backend default TCYCLES
-  // account) into a single Unicycle-owned ICPSwap position once it crosses the
-  // admin-tunable threshold. Three flat async steps: depositFrom the whole
-  // balance, swap half to ICP, pair both halves into the position. Best-effort:
-  // failures land in `lpHistory` and never raise to the originating top-up flow.
+  // LP routing saga (US16, balance-aware since 2026-07-15). Drains the fee
+  // pool (backend default TCYCLES account) plus any tracked harvest ICP
+  // (pendingHarvestIcp) into the single Unicycle-owned ICPSwap position once
+  // the fee pool crosses the admin-tunable threshold. drainIntoLp deposits
+  // both legs, swaps half the value delta toward balance, and pairs the lot.
+  // Best-effort: failures land in `lpHistory` and never raise to the
+  // originating top-up flow.
   // ---------------------------------------------------------------------------
 
   func recordLpEvent(event : LpEvent) {
@@ -1909,9 +1918,53 @@ persistent actor class Unicycle(
     } catch (e) { #err("pool depositFrom unreachable: " # e.message()) };
   };
 
-  // Step 2: swap `half` TCYCLES → ICP. Funds are already credited to the pool
-  // from step 1; the swap output is credited to the backend's pool ICP balance.
-  func swapHalfTcyclesForIcp(half : Nat) : async { #ok : Nat; #err : Text } {
+  // Step 1b: approve + depositFrom `balance` of tracked harvest ICP from the
+  // backend default ICP account into the pool's unused balance. Mirrors
+  // depositFeesToPool: two ledger fees; credited = balance - 2 * icpLedgerFee.
+  func depositHarvestIcpToPool(balance : Nat) : async { #ok : Nat; #err : Text } {
+    let depositAmount : Nat = if (balance > 2 * icpLedgerFee) { balance - 2 * icpLedgerFee : Nat } else { 0 };
+    if (depositAmount == 0) return #err("balance below deposit fees");
+    let ledger : ICRC2.Self = actor (Tokens.ledgerCanisterId(#ICP).toText());
+    let approveResult = try {
+      await ledger.icrc2_approve({
+        from_subaccount = null;
+        spender = { owner = swapPoolId; subaccount = null };
+        amount = depositAmount + icpLedgerFee;
+        expected_allowance = null;
+        expires_at = null;
+        fee = ?icpLedgerFee;
+        memo = null;
+        created_at_time = null;
+      });
+    } catch (e) { return #err("icp approve unreachable: " # e.message()) };
+    switch (approveResult) {
+      case (#Err err) { return #err("approve: " # debug_show err) };
+      case (#Ok _)    {};
+    };
+    try {
+      switch (await icpSwapPool().depositFrom({ token = Tokens.ledgerCanisterId(#ICP).toText(); amount = depositAmount; fee = icpLedgerFee })) {
+        case (#err e)       { #err(Errors.pool(e, "depositFrom")) };
+        case (#ok credited) { #ok credited };
+      };
+    } catch (e) { #err("pool depositFrom unreachable: " # e.message()) };
+  };
+
+  // Value `amountIcp` (in-pool) in TCYCLES via a pool quote — sizing input for
+  // lpDeltaSwap only. A manipulated quote can skew the ratio but not extract
+  // value: the executed swap keeps its FIN-1 slippage floor.
+  func quoteIcpValueTc(amountIcp : Nat) : async { #ok : Nat; #err : Text } {
+    try {
+      switch (await icpSwapPool().quote({ zeroForOne = true; amountIn = amountIcp.toText(); amountOutMinimum = "0" })) {
+        case (#ok n)  { #ok n };
+        case (#err e) { #err(Errors.pool(e, "quote")) };
+      };
+    } catch (e) { #err("swap pool unreachable (quote): " # e.message()) };
+  };
+
+  // Swap `amount` TCYCLES → ICP. Funds are already credited to the pool from
+  // the deposit step; the swap output is credited to the backend's pool ICP
+  // balance.
+  func swapTcyclesForIcp(amount : Nat) : async { #ok : Nat; #err : Text } {
     // Slippage floor (FIN-1): the CMC peg is a one-way ICP→cycles mint rate, so
     // it overvalues TCYCLES on the sell leg — TCYCLES trades below peg on the
     // pool, and a peg-priced floor rejects even tiny swaps. Quote the pool for
@@ -1920,7 +1973,7 @@ persistent actor class Unicycle(
     // quotes zero we can't price the swap, so skip it (best-effort; the next
     // drain retries) rather than swap unprotected.
     let quoted = try {
-      await icpSwapPool().quote({ zeroForOne = false; amountIn = half.toText(); amountOutMinimum = "0" });
+      await icpSwapPool().quote({ zeroForOne = false; amountIn = amount.toText(); amountOutMinimum = "0" });
     } catch (e) { return #err("swap pool unreachable (quote): " # e.message()) };
     let quotedOut = switch (quoted) {
       case (#err e) { return #err(Errors.pool(e, "quote")) };
@@ -1929,7 +1982,7 @@ persistent actor class Unicycle(
     };
     let minOut = SwapMath.slippageFloor(quotedOut, settings.swapSlippageBps);
     try {
-      switch (await icpSwapPool().swap({ zeroForOne = false; amountIn = half.toText(); amountOutMinimum = minOut.toText() })) {
+      switch (await icpSwapPool().swap({ zeroForOne = false; amountIn = amount.toText(); amountOutMinimum = minOut.toText() })) {
         case (#err e) { #err(Errors.pool(e, "swap")) };
         case (#ok n)  { #ok n };
       };
@@ -1962,70 +2015,136 @@ persistent actor class Unicycle(
     } catch (e) { #err("pool increaseLiquidity unreachable: " # e.message()) };
   };
 
-  // Step 3: mint a new full-range position or increase the existing one, pairing
-  // the remaining-half TCYCLES with the swapped ICP — both already in the pool.
-  func pairIntoPosition(halfTcycles : Nat, icpAmount : Nat) : async { #ok : Nat; #err : Text } {
+  // Pair the full post-swap amounts into the position (mint a new full-range
+  // one or increase the existing one) — both already in the pool. The pool
+  // consumes the limiting side and auto-refunds the excess side to the
+  // backend's default ledger account (see icpswap_pool.did behaviour notes).
+  func pairIntoPosition(tcyclesAmount : Nat, icpAmount : Nat) : async { #ok : Nat; #err : Text } {
     switch (lpPositionId) {
-      case null   { await mintNewPosition(icpAmount, halfTcycles) };
-      case (?id)  { await increaseExistingPosition(id, icpAmount, halfTcycles) };
+      case null   { await mintNewPosition(icpAmount, tcyclesAmount) };
+      case (?id)  { await increaseExistingPosition(id, icpAmount, tcyclesAmount) };
+    };
+  };
+
+  // Unwind a drain whose quote/swap step failed: pull both deposited legs
+  // back out of the pool's unused balance. TCYCLES rejoin the fee pool
+  // (next drain retries from scratch); ICP returns to the default account
+  // and re-enters pendingHarvestIcp with the landed net, so the counter
+  // never overstates. A failed withdraw leaves that leg stranded in-pool
+  // and untracked — same accepted gap as a failed pair step.
+  func recoverDrainDeposits(tc : Nat, icp : Nat, now : Nat, msg : Text) : async LpEvent {
+    var detail = msg;
+    if (tc > tcyclesLedgerFee) {
+      switch (await withdrawTcyclesToFeePool(tc)) {
+        case (#ok _)  {};
+        case (#err w) { detail #= "; tc recover failed: " # w };
+      };
+    };
+    if (icp > icpLedgerFee) {
+      switch (await withdrawIcpFromPool(icp)) {
+        case (#ok landed) { pendingHarvestIcp += landed };
+        case (#err w)     { detail #= "; icp recover failed: " # w };
+      };
+    };
+    { at = now; tcyclesIn = tc; icpOut = 0; positionId = lpPositionId; outcome = #err detail };
+  };
+
+  // Shared LP fold saga (US16, balance-aware since 2026-07-15). Deposits
+  // `tcAmount` TCYCLES from the fee pool and (best-effort) `icpAmount` of
+  // tracked harvest ICP, swaps half the VALUE DELTA so both sides end
+  // near-balanced — biased by swapSlippageBps so ICP is the limiting side of
+  // the pair step (the pool auto-refunds the excess side to our ledger
+  // account; a TCYCLES refund self-recovers via the fee pool, an ICP refund
+  // would strand untracked) — then pairs everything into the position.
+  // icpAmount == 0 (admin fund) reduces to the previous swap-half behaviour.
+  // Caller owns the lpDrainInFlight guard and records the returned event.
+  func drainIntoLp(tcAmount : Nat, icpAmount : Nat, now : Nat) : async LpEvent {
+    // ---- Step 1: approve + depositFrom the TCYCLES leg ----
+    let creditedTc : Nat = switch (await depositFeesToPool(tcAmount)) {
+      case (#err msg) { return { at = now; tcyclesIn = 0; icpOut = 0; positionId = lpPositionId; outcome = #err("deposit: " # msg) } };
+      case (#ok n) { n };
+    };
+
+    // ---- Step 1b: approve + depositFrom the tracked harvest ICP leg ----
+    // Best-effort: a failure logs, shaves one fee off the counter (the
+    // approve fee may have been spent; the counter must never overstate the
+    // live balance) and continues TCYCLES-only — the next drain retries.
+    var creditedIcp : Nat = 0;
+    if (icpAmount >= LP_MIN_ICP_DEPOSIT) {
+      switch (await depositHarvestIcpToPool(icpAmount)) {
+        case (#ok n) {
+          pendingHarvestIcp := if (pendingHarvestIcp > icpAmount) { pendingHarvestIcp - icpAmount : Nat } else { 0 };
+          creditedIcp := n;
+        };
+        case (#err msg) {
+          pendingHarvestIcp := if (pendingHarvestIcp > icpLedgerFee) { pendingHarvestIcp - icpLedgerFee : Nat } else { 0 };
+          log(#error, #lp, "lp drain: icp leg skipped: " # msg, null);
+        };
+      };
+    };
+
+    // ---- Step 2: value the ICP side, size and run the delta swap ----
+    let icpValueTc : Nat = if (creditedIcp == 0) { 0 } else {
+      switch (await quoteIcpValueTc(creditedIcp)) {
+        case (#ok v)    { v };
+        case (#err msg) { return await recoverDrainDeposits(creditedTc, creditedIcp, now, "quote: " # msg) };
+      };
+    };
+    var tcInPool = creditedTc;
+    var icpInPool = creditedIcp;
+    var icpFromSwap : Nat = 0;
+    switch (SwapMath.lpDeltaSwap(creditedTc, creditedIcp, icpValueTc, settings.swapSlippageBps, tcyclesLedgerFee, icpLedgerFee)) {
+      case (#none) {};
+      case (#tcToIcp amt) {
+        switch (await swapTcyclesForIcp(amt)) {
+          case (#ok out) {
+            tcInPool := creditedTc - amt;
+            icpInPool := creditedIcp + out;
+            icpFromSwap := out;
+          };
+          case (#err msg) { return await recoverDrainDeposits(creditedTc, creditedIcp, now, "swap: " # msg) };
+        };
+      };
+      case (#icpToTc amt) {
+        switch (await swapIcpForTcycles(amt)) {
+          case (#ok out) {
+            icpInPool := creditedIcp - amt;
+            tcInPool := creditedTc + out;
+          };
+          case (#err msg) { return await recoverDrainDeposits(creditedTc, creditedIcp, now, "swap: " # msg) };
+        };
+      };
+    };
+
+    // ---- Step 3: pair everything; the pool consumes the limiting side and
+    //      auto-refunds the excess (TCYCLES by construction of the bias) ----
+    switch (await pairIntoPosition(tcInPool, icpInPool)) {
+      case (#err msg) { { at = now; tcyclesIn = creditedTc; icpOut = icpFromSwap; positionId = lpPositionId; outcome = #err("lp pair: " # msg) } };
+      case (#ok newPositionId) {
+        if (lpPositionId == null) { lpPositionId := ?newPositionId };
+        { at = now; tcyclesIn = creditedTc; icpOut = icpFromSwap; positionId = lpPositionId; outcome = #ok };
+      };
     };
   };
 
   func runLpDrain() : async () {
     // Claim the guard synchronously, BEFORE the first await — otherwise two
     // concurrent firings (timer + manual recordCyclesNow) could both pass the
-    // check and double-drain the same balance. Mirrors how `attemptDirectTopUp`
-    // sets its in-flight flag before awaiting. Released on the sub-threshold
-    // early return and on every step outcome below.
-    if (lpDrainInFlight) return;
+    // check and double-drain the same balance. Also yields to a running group
+    // swap: both sagas approve the pool on the ICP ledger from the backend
+    // default account, and ICRC-2 allowances are absolute — interleaving
+    // would clobber them (2026-07-15 design, D4). Check-and-skip, never
+    // wait: the timer retries. Released on the sub-threshold early return
+    // and after the saga.
+    if (lpDrainInFlight or groupSwapInFlight) return;
     lpDrainInFlight := true;
     let balance = await feePoolBalance();
     if (balance < settings.lpDrainThresholdTcycles) {
       lpDrainInFlight := false;
       return;
     };
-
-    let now = Int.abs(Time.now());
-
-    // ---- Step 1: approve + depositFrom the whole fee balance into the pool ----
-    // No stage transfer: the fees already sit in the backend's default account,
-    // which is exactly where depositFrom pulls from.
-    let credited : Nat = switch (await depositFeesToPool(balance)) {
-      case (#err msg) {
-        recordLpEvent({ at = now; tcyclesIn = 0; icpOut = 0; positionId = lpPositionId; outcome = #err("deposit: " # msg) });
-        lpDrainInFlight := false;
-        return;
-      };
-      case (#ok n) { n };
-    };
-    let half = credited / 2;
-
-    // ---- Step 2: swap one half tcycles → ICP (funds already in the pool) ----
-    let swappedIcp : Nat = switch (await swapHalfTcyclesForIcp(half)) {
-      case (#err msg) {
-        // The deposited TCYCLES sit in the pool's unused balance and the swap
-        // didn't run — pull them back to the fee pool so a floored/failed swap
-        // (FIN-1) doesn't strand the batch; the next drain retries from scratch.
-        let recovery = if (credited > tcyclesLedgerFee) {
-          switch (await withdrawTcyclesToFeePool(credited)) { case (#ok _) { "" }; case (#err w) { "; recover failed: " # w } };
-        } else { "" };
-        recordLpEvent({ at = now; tcyclesIn = credited; icpOut = 0; positionId = lpPositionId; outcome = #err("swap: " # msg # recovery) });
-        lpDrainInFlight := false;
-        return;
-      };
-      case (#ok n) { n };
-    };
-
-    // ---- Step 3: pair the remaining half tcycles + swapped ICP into the LP ----
-    switch (await pairIntoPosition(credited - half, swappedIcp)) {
-      case (#err msg) {
-        recordLpEvent({ at = now; tcyclesIn = credited; icpOut = swappedIcp; positionId = lpPositionId; outcome = #err("lp pair: " # msg) });
-      };
-      case (#ok newPositionId) {
-        if (lpPositionId == null) { lpPositionId := ?newPositionId };
-        recordLpEvent({ at = now; tcyclesIn = credited; icpOut = swappedIcp; positionId = lpPositionId; outcome = #ok });
-      };
-    };
+    let event = await drainIntoLp(balance, pendingHarvestIcp, Int.abs(Time.now()));
+    recordLpEvent(event);
     lpDrainInFlight := false;
   };
 
@@ -2061,11 +2180,11 @@ persistent actor class Unicycle(
     } catch (e) { #err("pool claim unreachable: " # e.message()) };
   };
 
-  // Swap claimed ICP → TCYCLES in-pool so the reward is single-unit (TCYCLES).
-  // Funds are already credited to the pool from the claim; output is credited to
-  // the backend's pool TCYCLES balance.
+  // Swap `amountIcp` ICP → TCYCLES in-pool (the drain's #icpToTc delta
+  // direction). Funds are already credited to the pool from the deposit step;
+  // output is credited to the backend's pool TCYCLES balance.
   func swapIcpForTcycles(amountIcp : Nat) : async { #ok : Nat; #err : Text } {
-    // Slippage floor (FIN-1): mirror swapHalfTcyclesForIcp — expected TCYCLES out
+    // Slippage floor (FIN-1): mirror swapTcyclesForIcp — expected TCYCLES out
     // priced off the CMC peg, require at least (1 - swapSlippageBps) of it, and
     // skip (best-effort retry) if the rate is unavailable.
     let xpe = switch (await cmcCyclesPerE8s()) {
@@ -4708,9 +4827,10 @@ persistent actor class Unicycle(
     if (amount == 0) return #ok(fundErr("zero amount", 0, 0));
 
     // Claim the saga guard synchronously, before the first await — mutual
-    // exclusion with the timer-driven drain (and concurrent admin funds).
-    // Released on every return path below.
-    if (lpDrainInFlight) return #ok(fundErr("LP operation in flight; retry", 0, 0));
+    // exclusion with the timer-driven drain (and concurrent admin funds),
+    // plus the group swap (shared ICP-ledger allowance slot; 2026-07-15
+    // design, D4). Released on every return path below.
+    if (lpDrainInFlight or groupSwapInFlight) return #ok(fundErr("LP operation in flight; retry", 0, 0));
     lpDrainInFlight := true;
 
     // Step 0: pull the admin's TCYCLES from their wallet into the fee pool
@@ -4739,32 +4859,10 @@ persistent actor class Unicycle(
     // parks them in the fee pool (the next drain folds them into the position).
     cumulativeAdminFundedTcycles += amount;
 
-    // Steps 1-3: identical to runLpDrain, but scoped to exactly `amount` (the
-    // helpers approve/depositFrom a specific amount, so pre-existing accrued
-    // fees in the pool are left untouched).
-    let credited : Nat = switch (await depositFeesToPool(amount)) {
-      case (#err msg) { let e = fundErr("deposit: " # msg, 0, 0); recordFund(e); lpDrainInFlight := false; return #ok(e) };
-      case (#ok n) { n };
-    };
-    let half = credited / 2;
-    let swappedIcp : Nat = switch (await swapHalfTcyclesForIcp(half)) {
-      case (#err msg) {
-        // Un-strand the deposited TCYCLES on a floored/failed swap (FIN-1),
-        // mirroring runLpDrain — pull them back to the fee pool.
-        let recovery = if (credited > tcyclesLedgerFee) {
-          switch (await withdrawTcyclesToFeePool(credited)) { case (#ok _) { "" }; case (#err w) { "; recover failed: " # w } };
-        } else { "" };
-        let e = fundErr("swap: " # msg # recovery, credited, 0); recordFund(e); lpDrainInFlight := false; return #ok(e);
-      };
-      case (#ok n) { n };
-    };
-    let event : LpEvent = switch (await pairIntoPosition(credited - half, swappedIcp)) {
-      case (#err msg) { fundErr("lp pair: " # msg, credited, swappedIcp) };
-      case (#ok newPositionId) {
-        if (lpPositionId == null) { lpPositionId := ?newPositionId };
-        { at = now; tcyclesIn = credited; icpOut = swappedIcp; positionId = lpPositionId; outcome = #ok };
-      };
-    };
+    // Steps 1-3: shared drain saga, scoped to exactly `amount` and no harvest
+    // ICP — pre-existing fee-pool funds and pendingHarvestIcp are untouched
+    // (the helpers approve/depositFrom a specific amount).
+    let event = await drainIntoLp(amount, 0, now);
     recordFund(event);
     lpDrainInFlight := false;
     #ok(event);
