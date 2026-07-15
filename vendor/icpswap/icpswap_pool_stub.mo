@@ -79,6 +79,11 @@ persistent actor class IcpSwapPoolStub() = self {
   let RATE_NUMERATOR : Nat = 100_000;
   let RATE_DENOMINATOR : Nat = 1;
 
+  // Ledger fees, matching main.mo's icpLedgerFee / tcyclesLedgerFee. Used by
+  // the auto-withdraw/auto-refund paths below.
+  let ICP_FEE : Nat = 10_000;
+  let TCYCLES_FEE : Nat = 100_000_000;
+
   let balances : Map.Map<Principal, Map.Map<Text, Nat>> = Map.empty();
 
   // LP positions (US16). The stub does not model tick math — it tracks
@@ -137,6 +142,47 @@ persistent actor class IcpSwapPoolStub() = self {
         };
       };
     };
+  };
+
+  // Transfer `amount` of `token` out to the caller's default ledger account,
+  // net of one ledger fee — the mainnet pool's auto-withdraw/auto-refund
+  // shape (claim, and the excess side of mint/increaseLiquidity). An amount
+  // at or below the fee stays in the caller's pool balance, mirroring a
+  // mainnet withdraw that can't pay its fee; a failed transfer likewise
+  // falls back to the pool balance.
+  func autoWithdraw(caller : Principal, token : Text, fee : Nat, amount : Nat) : async () {
+    if (amount == 0) return;
+    if (amount <= fee) { addBalance(caller, token, amount); return };
+    let ledger : ICRC1.Self = actor (token);
+    try {
+      switch (await ledger.icrc1_transfer({
+        from_subaccount = null;
+        to = { owner = caller; subaccount = null };
+        amount = amount - fee;
+        fee = ?fee;
+        memo = null;
+        created_at_time = null;
+      })) {
+        case (#Ok _)  {};
+        case (#Err _) { addBalance(caller, token, amount) };
+      };
+    } catch (_) { addBalance(caller, token, amount) };
+  };
+
+  // Consume value-matched amounts at the stub rate and auto-refund the excess
+  // side — mirroring the mainnet pool, which consumes the limiting side of a
+  // full-range add and refunds the rest to the caller's ledger account.
+  // Returns the consumed (token0, token1), or null on insufficient balance.
+  func consumeMatched(caller : Principal, a0 : Nat, a1 : Nat) : async ?(Nat, Nat) {
+    let a0ValueTc = a0 * RATE_NUMERATOR / RATE_DENOMINATOR;
+    let (c0, c1) = if (a0ValueTc <= a1) { (a0, a0ValueTc) } else {
+      (a1 * RATE_DENOMINATOR / RATE_NUMERATOR, a1);
+    };
+    if (not subBalance(caller, ICP_LEDGER, a0)) return null;
+    if (not subBalance(caller, TCYCLES_LEDGER, a1)) { addBalance(caller, ICP_LEDGER, a0); return null };
+    await autoWithdraw(caller, ICP_LEDGER, ICP_FEE, a0 - c0);
+    await autoWithdraw(caller, TCYCLES_LEDGER, TCYCLES_FEE, a1 - c1);
+    ?(c0, c1);
   };
 
   func computeQuote(amountIn : Nat, zeroForOne : Bool) : Nat {
@@ -259,21 +305,25 @@ persistent actor class IcpSwapPoolStub() = self {
   };
 
   // Returns the new position's id as a `Nat`, matching the real ICPSwap V3
-  // pool (which keys positions by `Nat`).
+  // pool (which keys positions by `Nat`). Consumes value-matched amounts and
+  // auto-refunds the excess side, like the real pool's full-range add.
   public shared ({ caller }) func mint(args : MintArgs) : async { #ok : Nat; #err : Error } {
     let a0 = switch (Nat.fromText(args.amount0Desired)) { case null { return #err(#InternalError("invalid amount0")) }; case (?n) { n } };
     let a1 = switch (Nat.fromText(args.amount1Desired)) { case null { return #err(#InternalError("invalid amount1")) }; case (?n) { n } };
-    if (not subBalance(caller, args.token0, a0)) { return #err(#InsufficientFunds) };
-    if (not subBalance(caller, args.token1, a1)) { addBalance(caller, args.token0, a0); return #err(#InsufficientFunds) };
+    let consumed = switch (await consumeMatched(caller, a0, a1)) {
+      case null { return #err(#InsufficientFunds) };
+      case (?c) { c };
+    };
     let id = nextPositionId;
     nextPositionId += 1;
-    Map.add(positions, Nat.compare, id, { token0 = a0; token1 = a1; owner = caller });
+    Map.add(positions, Nat.compare, id, { token0 = consumed.0; token1 = consumed.1; owner = caller });
     #ok(id);
   };
 
   // The real pool returns the liquidity delta added (a `Nat`). The stub does
-  // not model tick math, so it returns the summed input amounts as a proxy;
-  // the backend ignores this value either way.
+  // not model tick math, so it returns the summed consumed amounts as a
+  // proxy; the backend ignores this value either way. Consumes value-matched
+  // amounts and auto-refunds the excess side, like the real pool.
   public shared ({ caller }) func increaseLiquidity(args : IncreaseLiquidityArgs) : async { #ok : Nat; #err : Error } {
     let pos = switch (Map.get(positions, Nat.compare, args.positionId)) {
       case null { return #err(#InternalError("unknown position: " # Nat.toText(args.positionId))) };
@@ -282,16 +332,19 @@ persistent actor class IcpSwapPoolStub() = self {
     if (not Principal.equal(pos.owner, caller)) { return #err(#InternalError("position not owned by caller")) };
     let a0 = switch (Nat.fromText(args.amount0Desired)) { case null { return #err(#InternalError("invalid amount0")) }; case (?n) { n } };
     let a1 = switch (Nat.fromText(args.amount1Desired)) { case null { return #err(#InternalError("invalid amount1")) }; case (?n) { n } };
-    if (not subBalance(caller, ICP_LEDGER, a0)) { return #err(#InsufficientFunds) };
-    if (not subBalance(caller, TCYCLES_LEDGER, a1)) { addBalance(caller, ICP_LEDGER, a0); return #err(#InsufficientFunds) };
-    Map.add(positions, Nat.compare, args.positionId, { token0 = pos.token0 + a0; token1 = pos.token1 + a1; owner = pos.owner });
-    #ok(a0 + a1);
+    let consumed = switch (await consumeMatched(caller, a0, a1)) {
+      case null { return #err(#InsufficientFunds) };
+      case (?c) { c };
+    };
+    Map.add(positions, Nat.compare, args.positionId, { token0 = pos.token0 + consumed.0; token1 = pos.token1 + consumed.1; owner = pos.owner });
+    #ok(consumed.0 + consumed.1);
   };
 
-  // Claim a position's accrued trading fees (US18) into the caller's pool
-  // balance — mirrors how `swap` credits output — then zero the pending fees.
-  // Returns the claimed (amount0, amount1). Positions are keyed by `Nat`,
-  // matching the real ICPSwap pool.
+  // Claim a position's accrued trading fees (US18), then AUTO-WITHDRAW both
+  // legs to the caller's default ledger accounts, net of one ledger fee each
+  // — mirroring the mainnet pool's `_claim` ("auto withdraw" in
+  // icpswap-v3-service SwapPool.mo). Returns the GROSS claimed amounts.
+  // Positions are keyed by `Nat`, matching the real ICPSwap pool.
   public shared ({ caller }) func claim(args : ClaimArgs) : async {
     #ok : { amount0 : Nat; amount1 : Nat };
     #err : Error;
@@ -300,9 +353,9 @@ persistent actor class IcpSwapPoolStub() = self {
       case null { { token0 = 0; token1 = 0 } };
       case (?p) { p };
     };
-    if (pending.token0 > 0) { addBalance(caller, ICP_LEDGER, pending.token0) };
-    if (pending.token1 > 0) { addBalance(caller, TCYCLES_LEDGER, pending.token1) };
     Map.add(pendingFees, Nat.compare, args.positionId, { token0 = 0; token1 = 0 });
+    await autoWithdraw(caller, ICP_LEDGER, ICP_FEE, pending.token0);
+    await autoWithdraw(caller, TCYCLES_LEDGER, TCYCLES_FEE, pending.token1);
     #ok({ amount0 = pending.token0; amount1 = pending.token1 });
   };
 

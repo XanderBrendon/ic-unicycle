@@ -7,15 +7,25 @@
 // Pinned to upstream `main` at the time of US12 (the upstream repo predates
 // candid file vendoring; the Motoko sources cited above are the canonical
 // type definitions). Hand-typed rather than `didc bind`-generated because the
-// full upstream service exposes ~30 methods that US12 has no consumer for;
+// full upstream service exposes ~30 methods the backend has no consumer for;
 // Motoko's structural subtyping on actor references lets the backend declare
-// a narrow inline reference covering only the five methods listed below.
+// a narrow inline reference covering only the methods listed below.
 //
 // SYNC: this .did is the canonical interface contract for both the local
 // stub (`vendor/icpswap/icpswap_pool_stub.mo`) and the production ICPSwap V3
 // pool (`pejtq-ciaaa-aaaar-qb5wq-cai`, the ICP/CYCLES pool). The backend
 // references the pool via an inline `actor { ... }` reference whose shape
 // mirrors this file (see `src/unicycle_backend/main.mo`).
+//
+// BEHAVIOUR NOTES (verified against the deployed mainnet pool, 2026-07-15):
+//   * `claim` credits the pool balance then immediately AUTO-WITHDRAWS both
+//     legs to the caller's default ledger accounts (net of one ledger fee
+//     each, as an enqueued transfer). Returned amounts are GROSS. Callers
+//     must NOT expect an in-pool balance after a claim.
+//   * `mint` / `increaseLiquidity` consume the limiting side of a full-range
+//     add and AUTO-REFUND the excess side to the caller's default ledger
+//     account (net of one ledger fee; a sub-fee excess stays in the pool
+//     balance).
 
 type PoolToken = record {
   address : text;     // ICRC ledger principal id as text
@@ -52,6 +62,24 @@ type WithdrawToSubaccountArgs = record {
   subaccount : blob;
 };
 
+type MintArgs = record {
+  token0 : text;
+  token1 : text;
+  fee : nat;
+  tickLower : int;
+  tickUpper : int;
+  amount0Desired : text;
+  amount1Desired : text;
+};
+
+type IncreaseLiquidityArgs = record {
+  positionId : nat;
+  amount0Desired : text;
+  amount1Desired : text;
+};
+
+type ClaimArgs = record { positionId : nat };
+
 type Error = variant {
   CommonError;
   InternalError : text;
@@ -68,4 +96,8 @@ service : {
   depositFrom : (DepositArgs) -> (Result_Nat);
   swap : (SwapArgs) -> (Result_Nat);
   withdrawToSubaccount : (WithdrawToSubaccountArgs) -> (Result_Nat);
+  mint : (MintArgs) -> (Result_Nat);
+  increaseLiquidity : (IncreaseLiquidityArgs) -> (Result_Nat);
+  claim : (ClaimArgs) -> (variant { ok : record { amount0 : nat; amount1 : nat }; err : Error });
+  refreshIncome : (nat) -> (variant { ok : record { tokensOwed0 : nat; tokensOwed1 : nat }; err : Error }) query;
 };
