@@ -538,6 +538,7 @@ module {
 
   public type AdminLpInfo = {
     feePoolBalanceTcycles : Nat;     // live read of the backend default TCYCLES account
+    pendingHarvestIcp : Nat;         // harvested ICP (e8s) awaiting the next drain
     cumulativeFeesTcycles : Nat;
     cumulativeAdminFundedTcycles : Nat; // total ever admin-funded into the LP from a wallet
     lpPositionId : ?Nat;

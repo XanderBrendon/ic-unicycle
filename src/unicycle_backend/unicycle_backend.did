@@ -738,6 +738,7 @@ type AdminLpInfo =
    feePoolBalanceTcycles: nat;
    lpHistory: vec LpEvent;
    lpPositionId: opt nat;
+   pendingHarvestIcp: nat;
  };
 type AdminLoyaltyInfo =
  record {

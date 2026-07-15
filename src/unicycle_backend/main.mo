@@ -40,6 +40,15 @@ import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
 
+// ONE-SHOT (2026-07-15): seed `pendingHarvestIcp` with the ICP leg stranded
+// by the failed first production harvest (5_597_725 e8s auto-withdrawn by the
+// pool's claim to the backend's default ICP account; see the 2026-07-15
+// harvest design doc). Runs on upgrade only; fresh installs initialize 0.
+// REMOVE IN THE RELEASE AFTER THE PRODUCTION DEPLOY — left in place it
+// re-runs on every upgrade and clobbers the counter.
+(with migration = func(_ : {}) : { var pendingHarvestIcp : Nat } {
+  { var pendingHarvestIcp = 5_597_725 };
+})
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -516,6 +525,16 @@ persistent actor class Unicycle(
   // `cumulativeFeesTcycles` so admin funding grows the position without ever
   // touching the loyalty shares denominator (reward share unaffected).
   var cumulativeAdminFundedTcycles : Nat = 0;
+
+  // Harvested ICP sitting in the backend's default ICP account, awaiting the
+  // next LP drain. A COUNTER, never a balance read: the default ICP account
+  // also stages user funds mid-group-swap (prepareAndDepositIcp), so a
+  // balance read cannot distinguish provenance. Incremented by the net
+  // claimed ICP leg on harvest (the pool auto-withdraws it here);
+  // decremented when the drain deposits it into the pool. Must never
+  // overstate the live balance (understatement is safe): failed drain legs
+  // shave the fees they may have consumed. Stable.
+  var pendingHarvestIcp : Nat = 0;
 
   // ---------------------------------------------------------------------------
   // Service-funding routing state (US17). When the primary admin's TCYCLES
@@ -4628,6 +4647,7 @@ persistent actor class Unicycle(
     let balance = await feePoolBalance();
     #ok({
       feePoolBalanceTcycles = balance;
+      pendingHarvestIcp;
       cumulativeFeesTcycles;
       cumulativeAdminFundedTcycles;
       lpPositionId;
