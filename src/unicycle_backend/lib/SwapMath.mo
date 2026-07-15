@@ -134,4 +134,33 @@ module {
   public func deficit(needed : Nat, balance : Nat) : Nat {
     if (needed > balance) { needed - balance : Nat } else { 0 };
   };
+
+  // LP-drain delta-swap sizing (balance-aware drain). Given the in-pool
+  // TCYCLES (`tc`), in-pool ICP (`icp`, native e8s) and the quoted TCYCLES
+  // value of all that ICP (`icpValueTc`), size a swap of half the value
+  // delta so both sides end near-balanced — biased by `biasBps` so the ICP
+  // side ends up the LIMITING side of the subsequent mint/increaseLiquidity
+  // (the pool auto-refunds the excess side to the caller's ledger account;
+  // a TCYCLES refund self-recovers via the fee pool, an ICP refund would
+  // strand untracked). Trap-free: biasBps >= 10_000 yields #none on the
+  // tc-heavy branch; the icp-heavy branch caps at `icp`. Amounts below the
+  // per-direction min floors yield #none (skip degenerate micro-swaps).
+  public func lpDeltaSwap(tc : Nat, icp : Nat, icpValueTc : Nat, biasBps : Nat, minTcIn : Nat, minIcpIn : Nat) : {
+    #none;
+    #tcToIcp : Nat;
+    #icpToTc : Nat;
+  } {
+    if (tc >= icpValueTc) {
+      let raw = (tc - icpValueTc : Nat) / 2;
+      let amt = if (biasBps >= 10_000) { 0 } else { raw * ((10_000 - biasBps) : Nat) / 10_000 };
+      if (amt < minTcIn) { #none } else { #tcToIcp amt };
+    } else {
+      // icpValueTc > tc >= 0, so icpValueTc > 0 — division is safe.
+      let raw = (icpValueTc - tc : Nat) / 2;
+      let valTc = raw * (10_000 + biasBps) / 10_000;
+      let uncapped = icp * valTc / icpValueTc;
+      let amt = if (uncapped > icp) { icp } else { uncapped };
+      if (amt < minIcpIn) { #none } else { #icpToTc amt };
+    };
+  };
 }

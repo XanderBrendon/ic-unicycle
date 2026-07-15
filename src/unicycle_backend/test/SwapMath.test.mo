@@ -85,3 +85,34 @@ test("harvestThresholdPrecheck: below threshold with no ICP owed -> #below", fun
 test("harvestThresholdPrecheck: below on TCYCLES but ICP owed -> #needsRate", func() {
   switch (SwapMath.harvestThresholdPrecheck(50, 1, 100)) { case (#needsRate) {}; case _ { assert false } };
 });
+
+test("lpDeltaSwap: balanced or empty -> none", func() {
+  switch (SwapMath.lpDeltaSwap(1_000, 10, 1_000, 300, 1, 1)) { case (#none) {}; case _ { assert false } };
+  switch (SwapMath.lpDeltaSwap(0, 0, 0, 300, 1, 1)) { case (#none) {}; case _ { assert false } };
+});
+
+test("lpDeltaSwap: tc-heavy -> tcToIcp of half the delta, shaved by bias", func() {
+  // delta = 1_000_000, half = 500_000, bias 0 -> exactly half
+  switch (SwapMath.lpDeltaSwap(1_000_000, 0, 0, 0, 1, 1)) { case (#tcToIcp n) { assert n == 500_000 }; case _ { assert false } };
+  // bias 300 bps -> 500_000 * 9_700 / 10_000 = 485_000
+  switch (SwapMath.lpDeltaSwap(1_000_000, 0, 0, 300, 1, 1)) { case (#tcToIcp n) { assert n == 485_000 }; case _ { assert false } };
+  // bias >= 10_000 -> amount 0 -> none (trap-free, mirrors slippageFloor)
+  switch (SwapMath.lpDeltaSwap(1_000_000, 0, 0, 10_000, 1, 1)) { case (#none) {}; case _ { assert false } };
+});
+
+test("lpDeltaSwap: icp-heavy -> icpToTc in native units, inflated by bias, capped", func() {
+  // tc=0, icp=800 units worth 1_000_000 TC: half delta = 500_000 TC-worth
+  // bias 0: icpIn = 800 * 500_000 / 1_000_000 = 400
+  switch (SwapMath.lpDeltaSwap(0, 800, 1_000_000, 0, 1, 1)) { case (#icpToTc n) { assert n == 400 }; case _ { assert false } };
+  // bias 300: valTc = 515_000 -> icpIn = 800 * 515_000 / 1_000_000 = 412
+  switch (SwapMath.lpDeltaSwap(0, 800, 1_000_000, 300, 1, 1)) { case (#icpToTc n) { assert n == 412 }; case _ { assert false } };
+  // absurd bias can never swap more than we hold
+  switch (SwapMath.lpDeltaSwap(0, 800, 1_000_000, 9_999, 1, 1)) { case (#icpToTc n) { assert n <= 800 }; case _ { assert false } };
+});
+
+test("lpDeltaSwap: below min floors -> none", func() {
+  // tc-heavy but half-delta (500) below minTcIn 1_000
+  switch (SwapMath.lpDeltaSwap(1_000, 0, 0, 0, 1_000, 1)) { case (#none) {}; case _ { assert false } };
+  // icp-heavy but icpIn (400) below minIcpIn 500
+  switch (SwapMath.lpDeltaSwap(0, 800, 1_000_000, 0, 1, 500)) { case (#none) {}; case _ { assert false } };
+});
