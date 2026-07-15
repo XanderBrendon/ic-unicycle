@@ -20,7 +20,7 @@ canisters:
         candid: src/unicycle_backend/unicycle_backend.did
     # (blackholeCanisterId, icpSwapPoolId, snsWasmCanisterId, cmcCanisterId) —
     # local balance_checker + icpswap_pool + sns_wasm + cmc
-    init_args: '(principal "abh5z-57777-77775-aaadq-cai", principal "bmjzx-sx777-77775-aaaea-cai", principal "aiewf-lx777-77775-aaaca-cai", principal "apfqr-gp777-77775-aaacq-cai")'
+    init_args: '(principal "46el7-ql777-77775-aaada-cai", principal "4xhad-gd777-77775-aaacq-cai", principal "aiewf-lx777-77775-aaaca-cai", principal "4fbx2-kt777-77775-aaabq-cai")'
 
   - name: unicycle_frontend
     recipe:
@@ -42,7 +42,7 @@ canisters:
           path: vendor/blackhole/balance_checker.wasm
           sha256: e1ec113dfdb077be3733d1805bc251525485461ef5156f531910634d8da5fc5a
     # authorisedCaller = local unicycle_backend
-    init_args: '(principal "a2cb4-hh777-77775-aaaba-cai")'
+    init_args: '(principal "4caro-hl777-77775-aaaba-cai")'
 
   # Local stub for the ICPSwap V3 SwapPool. Saga test fixture only — mainnet
   # deploys init-arg the backend at the real ICP/CYCLES pool

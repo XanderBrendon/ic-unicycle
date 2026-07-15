@@ -2184,15 +2184,25 @@ persistent actor class Unicycle(
   // direction). Funds are already credited to the pool from the deposit step;
   // output is credited to the backend's pool TCYCLES balance.
   func swapIcpForTcycles(amountIcp : Nat) : async { #ok : Nat; #err : Text } {
-    // Slippage floor (FIN-1): mirror swapTcyclesForIcp — expected TCYCLES out
-    // priced off the CMC peg, require at least (1 - swapSlippageBps) of it, and
-    // skip (best-effort retry) if the rate is unavailable.
-    let xpe = switch (await cmcCyclesPerE8s()) {
-      case (#ok r) { r };
-      case (#err e) { return #err("no rate for slippage floor: " # e) };
+    // Slippage floor (FIN-1): mirror swapTcyclesForIcp — quote the pool for
+    // this exact trade and require at least (1 - swapSlippageBps) of it.
+    // Deliberately NOT the CMC peg: pool price and peg carry basis risk in
+    // both directions (the old peg-priced floor here floored out every
+    // legitimate swap whenever TCYCLES traded above peg, unwinding the drain
+    // each sweep and bleeding fees). The drain is portfolio-internal
+    // rebalancing — both sides land in the same LP — so the floor's job is
+    // only to bound movement between quote and execution, exactly like the
+    // TC→ICP leg. If the pool is unreachable or quotes zero we can't price
+    // the swap, so skip it (best-effort; the next drain retries).
+    let quoted = try {
+      await icpSwapPool().quote({ zeroForOne = true; amountIn = amountIcp.toText(); amountOutMinimum = "0" });
+    } catch (e) { return #err("swap pool unreachable (quote): " # e.message()) };
+    let quotedOut = switch (quoted) {
+      case (#err e) { return #err(Errors.pool(e, "quote")) };
+      case (#ok 0)  { return #err("quote returned zero output") };
+      case (#ok n)  { n };
     };
-    if (xpe == 0) return #err("no rate for slippage floor: cmc rate zero");
-    let minOut = SwapMath.slippageFloor(SwapMath.expectedTcyclesOut(amountIcp, xpe), settings.swapSlippageBps);
+    let minOut = SwapMath.slippageFloor(quotedOut, settings.swapSlippageBps);
     try {
       switch (await icpSwapPool().swap({ zeroForOne = true; amountIn = amountIcp.toText(); amountOutMinimum = minOut.toText() })) {
         case (#ok n)  { #ok n };
