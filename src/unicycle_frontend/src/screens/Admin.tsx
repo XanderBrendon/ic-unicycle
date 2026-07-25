@@ -822,6 +822,16 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
                     <td>
                       {ok && u.result.__kind__ === 'ok' ? (
                         <span className="badge ok">block {u.result.ok.toString()}</span>
+                      ) : u.result.__kind__ === 'deferred' ? (
+                        <>
+                          <span className="badge warn">pending</span>
+                          <div
+                            className="mono"
+                            style={{ fontSize: 9.5, color: 'var(--warn)', marginTop: 3, maxWidth: 280, whiteSpace: 'normal', lineHeight: 1.4 }}
+                          >
+                            {u.result.deferred}
+                          </div>
+                        </>
                       ) : (
                         <>
                           <span className="badge crit">err</span>

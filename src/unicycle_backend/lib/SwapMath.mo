@@ -135,6 +135,20 @@ module {
     if (needed > balance) { needed - balance : Nat } else { 0 };
   };
 
+  // One candidate's draw on a SHARED pot: `(deficit, potAfter)`. Deposit
+  // subaccounts are keyed by OWNER, not by canister, so every pass-2 candidate
+  // of one owner (an SNS root tracks its whole fleet under a single principal)
+  // draws on the same balance. Applying `deficit` per candidate against the
+  // full balance under-buys the group swap by (k-1)·balance and leaves the last
+  // candidates short of the retry withdraw. Folding this over an owner's
+  // candidates instead makes Σdeficit == Σneeded - balance exactly.
+  public func drawFromBalance(needed : Nat, available : Nat) : (Nat, Nat) {
+    (
+      deficit(needed, available),
+      if (available > needed) { available - needed : Nat } else { 0 },
+    );
+  };
+
   // LP-drain delta-swap sizing (balance-aware drain). Given the in-pool
   // TCYCLES (`tc`), in-pool ICP (`icp`, native e8s) and the quoted TCYCLES
   // value of all that ICP (`icpValueTc`), size a swap of half the value

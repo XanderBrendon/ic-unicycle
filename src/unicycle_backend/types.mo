@@ -307,10 +307,20 @@ module {
   // after the fact. `result` carries the cycles-ledger block index on success
   // and a formatted human-readable message on failure. `swap` is populated
   // iff this top-up went through US12's group-swap path.
+  //
+  // `#deferred` is neither: the funding leg succeeded but the bought TCYCLES
+  // had not reached the deposit subaccount before the retry window closed, so
+  // no withdraw was attempted. ICPSwap's `withdrawToSubaccount` returns as soon
+  // as the transfer is ENQUEUED — a pool-side timer drains that queue one item
+  // per ~500ms on a queue shared with every other pool caller — so the delivery
+  // is in flight, not lost. The next sweep's pass 1 completes the top-up from
+  // the settled balance. Recorded (rather than dropped) so the swap leg and its
+  // balance events still land in history; excluded from the failure counters
+  // because nothing failed.
   public type TopUp = {
     attemptedAt : Nat;
     amount : Nat;
-    result : { #ok : Nat; #err : Text };
+    result : { #ok : Nat; #err : Text; #deferred : Text };
     swap : ?SwapAttempt;
     serviceFee : Nat;      // NET tcycles transferred to the fee pool for this top-up (0 if disabled/error)
     feeError : ?Text;      // present iff the fee transfer failed but the top-up succeeded

@@ -613,6 +613,13 @@ persistent actor class Unicycle(
   let MAX_LOG_ENTRIES : Nat = 1_000;
   let MAX_METRICS_SNAPSHOTS : Nat = 4096; // > 1 year of snapshots at the default check interval
 
+  // Extra balance re-reads `awaitTcyclesSettled` will spend waiting for a saga
+  // delivery to clear the pool's withdraw queue. Each is a ledger round-trip,
+  // so this is a few seconds of slack per participant, and the retry loop's own
+  // work between participants adds more. Exhausting it is not an error — the
+  // top-up records as `#deferred` and the next sweep finishes it.
+  let SETTLE_POLL_ATTEMPTS : Nat = 5;
+
   // owner → newest-first balance events (owner = person or SNS root).
   let balanceEvents : Map.Map<Principal, [BalanceEvent]> = Map.empty();
   var logEntries : [LogEntry] = [];
@@ -665,7 +672,7 @@ persistent actor class Unicycle(
     owner : Principal,
     canisterId : Principal,
     amount : Nat,
-    result : { #ok : Nat; #err : Text },
+    result : { #ok : Nat; #err : Text; #deferred : Text },
     swap : ?SwapAttempt,
     serviceFee : Nat,
     feeError : ?Text,
@@ -721,6 +728,12 @@ persistent actor class Unicycle(
       case (#err msg) {
         cumulativeTopUpsFailed += 1;
         log(#error, #topUp, "top-up " # canisterId.toText() # " failed for " # owner.toText() # ": " # msg, null);
+      };
+      // Funding landed but the tokens were still in the pool's withdraw queue —
+      // no withdraw was attempted, so this counts as neither success nor
+      // failure. The next sweep tops up from the settled balance.
+      case (#deferred msg) {
+        log(#warn, #topUp, "top-up " # canisterId.toText() # " deferred for " # owner.toText() # ": " # msg, null);
       };
     };
     switch (feeError) {
@@ -959,6 +972,20 @@ persistent actor class Unicycle(
     };
   };
 
+  // What `applyFeeCharge` would actually charge this owner right now, without
+  // mutating the account — `Loyalty.settle` is pure, so this banks nothing and
+  // reserves nothing. Used by the affordability gate so a rebated owner is not
+  // pushed into the swap path over credit they will never be asked to pay.
+  // The real settle + reserve still happens inside `applyFeeCharge`; a
+  // concurrent charge for the same owner between the two can consume the credit
+  // and leave the actual net higher, which lands as a `feeError` on an
+  // otherwise-successful top-up — the same rare-race outcome the gate has
+  // always tolerated.
+  func netFeeFor(owner : Principal, grossFee : Nat) : Nat {
+    let settled = Loyalty.settle(accountOf(owner), accRewardPerShare);
+    grossFee - Loyalty.rebateFor(settled, grossFee) : Nat;
+  };
+
   // Live read of the fee pool (the backend's default TCYCLES account). Ground
   // truth for the LP drain + admin LP info; throws collapse to 0.
   func feePoolBalance() : async Nat {
@@ -981,6 +1008,30 @@ persistent actor class Unicycle(
         subaccount = ?Subaccount.ofPrincipal(owner);
       });
     } catch (_) { 0 };
+  };
+
+  // Wait for a saga delivery to actually reach the owner's deposit subaccount.
+  //
+  // ICPSwap's `withdrawToSubaccount` returns `#ok` the moment the transfer is
+  // ENQUEUED, not when it settles: the pool drains its withdraw queue from a
+  // timer, one item per ~500ms plus that item's own ledger round-trip, on a
+  // queue shared with every other caller of the pool. Retrying the
+  // cycles-ledger withdraw straight after the saga therefore races that queue —
+  // and loses whenever one owner has several participants in a single saga,
+  // which every SNS root does (its whole fleet sits under one principal, so
+  // each canister is a separate queue item behind the last).
+  //
+  // Each poll is itself a ledger round-trip, so the bound is a duration of a
+  // few seconds, not a spin. Returns the last balance observed; the caller
+  // decides what a short balance means.
+  func awaitTcyclesSettled(owner : Principal, needed : Nat) : async Nat {
+    var balance = await tcyclesBalanceOf(owner);
+    var polls : Nat = 0;
+    while (balance < needed and polls < SETTLE_POLL_ATTEMPTS) {
+      polls += 1;
+      balance := await tcyclesBalanceOf(owner);
+    };
+    balance;
   };
 
   // Fee-routing decision for a top-up firing (US17). Resolved once per
@@ -1033,10 +1084,13 @@ persistent actor class Unicycle(
     // make the withdraw succeed while the fee transfer fails (free service).
     // Below threshold behaves exactly like the cycles ledger's own
     // InsufficientFunds — the pair falls into Pass 2's fee-inclusive deficit.
-    // `serviceFee` here is the GROSS fee — do NOT net out any loyalty rebate
-    // (US18). A rebate only ever reduces what the user pays, so gating on the
-    // gross stays conservatively correct; netting it would let a thin balance
-    // pass the gate and then fail the actual (net) fee transfer.
+    // `serviceFee` here is the NET fee the owner will actually be asked for,
+    // i.e. gross minus any loyalty rebate (US18) — see `netFeeFor` for why
+    // peeking at the credit here is safe. Gating on the GROSS instead (the
+    // original, deliberately conservative reading) sends owners into the pass-2
+    // swap over a fee their accrued credit already covers, so a rebate made the
+    // saga — and its withdraw-queue race — fire when a direct top-up would have
+    // worked.
     let needed = SwapMath.directTopUpNeeded(amount, serviceFee, tcyclesLedgerFee);
     let balance = await tcyclesBalanceOf(owner);
     if (balance < needed) { return #insufficientFunds { balance } };
@@ -1633,6 +1687,11 @@ persistent actor class Unicycle(
     let feeRouting = await resolveFeeRouting();
 
     let swapDemand = List.empty<Types.SwapDemand>();
+    // Pass-1 shortfalls, staged as (owner, canisterId, amount, needed, balance).
+    // Deficits are NOT computed here: a deposit subaccount belongs to the OWNER,
+    // so an owner's canisters all draw on one balance and the split can only be
+    // decided once pass 1 has finished spending. See the allocation loop below.
+    let pendingSwap = List.empty<(Principal, Principal, Nat, Nat, Nat)>();
 
     // ---- Pass 1: direct withdraws ----
     // Always runs. `attemptDirectTopUp` sets the per-pair `topUpsInFlight`
@@ -1644,8 +1703,14 @@ persistent actor class Unicycle(
     // `recordTopUp`. Only Pass 2's saga uses the global `groupSwapInFlight`
     // flag.
     for ((owner, canisterId, amount) in candidates.vals()) {
+      // Two fees, deliberately: `serviceFee` is the GROSS charge and is what
+      // `applyFeeCharge` must receive — it derives and books the rebate itself,
+      // so handing it a pre-netted figure would discount twice. `gatedFee` is
+      // the net the owner will actually be asked for, and is what the
+      // affordability gate and the pass-2 deficit size against.
       let serviceFee = computeServiceFee(amount);
-      switch (await attemptDirectTopUp(owner, canisterId, amount, serviceFee)) {
+      let gatedFee = netFeeFor(owner, serviceFee);
+      switch (await attemptDirectTopUp(owner, canisterId, amount, gatedFee)) {
         case (#ok blockIndex) {
           // Gate already proved affordability; a failure here is the rare
           // concurrent-withdraw race — record feeError, keep the top-up #ok.
@@ -1661,18 +1726,54 @@ persistent actor class Unicycle(
         };
         case (#skipped) { /* silent — guard fired; next reading retries */ };
         case (#insufficientFunds { balance }) {
-          let needed = SwapMath.directTopUpNeeded(amount, serviceFee, tcyclesLedgerFee);  // withdraw fee + fee-transfer fee
-          let deficit = SwapMath.deficit(needed, balance);
-          swapDemand.add(
-            {
-              owner;
-              canisterId;
-              cycleTopUpAmount = amount;
-              deficit;
-              tcyclesBalanceBefore = balance;
-            }
-          );
+          let needed = SwapMath.directTopUpNeeded(amount, gatedFee, tcyclesLedgerFee);  // withdraw fee + fee-transfer fee
+          pendingSwap.add((owner, canisterId, amount, needed, balance));
         };
+      };
+    };
+
+    // ---- Deficit allocation: one shared pot per owner ----
+    // Deposit subaccounts are keyed by owner, so every shortfall of one owner
+    // draws on the same balance — an SNS root tracks its whole fleet under a
+    // single principal, so this is the normal case, not the edge case. Sizing
+    // each candidate's deficit against the full balance independently (the
+    // pre-fix behaviour) under-buys the group swap by (k-1)·balance, and the
+    // last candidates' retry withdraws then fail with insufficient funds even
+    // though the swap "succeeded".
+    //
+    // The balance is re-read once per owner HERE rather than reused from pass
+    // 1: pass 1's own successful withdraws have since spent from the same pot,
+    // and the readings it took are stale by exactly that much.
+    let pending = pendingSwap.toArray();
+    let ownerPot = Map.empty<Principal, Nat>();
+    for ((owner, _canisterId, _amount, _needed, _balance) in pending.vals()) {
+      switch (ownerPot.get(owner)) {
+        case (?_) {};
+        case null { ownerPot.add(owner, await tcyclesBalanceOf(owner)) };
+      };
+    };
+    for ((owner, canisterId, amount, needed, balance) in pending.vals()) {
+      let pot = switch (ownerPot.get(owner)) { case (?p) p; case null 0 };
+      let (deficit, potAfter) = SwapMath.drawFromBalance(needed, pot);
+      ownerPot.add(owner, potAfter);
+      // The re-read can clear a shortfall pass 1 saw — most often a delivery
+      // that was still sitting in the pool's withdraw queue when pass 1 looked.
+      // Nothing to buy, and a zero-deficit participant would burn two ICP
+      // ledger fees on a staging transfer the pool then rejects, so drop it and
+      // let the next sweep's pass 1 take it directly. The pot stays drawn down
+      // so the remaining participants size conservatively.
+      if (deficit == 0) {
+        inFlightRemove(owner, canisterId);
+      } else {
+        swapDemand.add(
+          {
+            owner;
+            canisterId;
+            cycleTopUpAmount = amount;
+            deficit;
+            tcyclesBalanceBefore = balance;
+          }
+        );
       };
     };
     if (swapDemand.size() == 0) return;
@@ -1765,7 +1866,7 @@ persistent actor class Unicycle(
     // skip under the new race-free ordering. Each branch ends with
     // `inFlightRemove` AFTER `recordTopUp` to keep `removeCanister` blocked
     // through the entire write window.
-    for (demand in demandArr.vals()) {
+    label retryLoop for (demand in demandArr.vals()) {
       let resolution = switch (
         findResolution(resolutions, demand.owner, demand.canisterId)
       ) {
@@ -1782,6 +1883,48 @@ persistent actor class Unicycle(
       # demand.tcyclesBalanceBefore.toText() # ")";
       switch (resolution.outcome) {
         case (#ok) {
+          // The saga only proves the pool ACCEPTED the delivery, not that the
+          // tokens arrived — `withdrawToSubaccount` returns on enqueue and the
+          // pool drains that queue from a timer. Wait for the subaccount to
+          // actually cover the withdraw + its net fee before retrying, or the
+          // withdraw races the queue and loses (see `awaitTcyclesSettled`).
+          let grossFee = computeServiceFee(demand.cycleTopUpAmount);
+          let settleTarget = SwapMath.directTopUpNeeded(
+            demand.cycleTopUpAmount,
+            netFeeFor(demand.owner, grossFee),
+            tcyclesLedgerFee,
+          );
+          let settled = await awaitTcyclesSettled(demand.owner, settleTarget);
+          // Short of even the bare withdraw: the delivery is still in flight, so
+          // there is nothing to retry yet and nothing has failed. Record it as
+          // deferred — the swap leg and its balance events still land in
+          // history — and let the next sweep top up from the settled balance.
+          // Between the two bars, the withdraw goes through and only the fee
+          // transfer may miss, which is the pre-existing `feeError` outcome.
+          if (settled < demand.cycleTopUpAmount + tcyclesLedgerFee) {
+            recordTopUp(
+              demand.owner,
+              demand.canisterId,
+              demand.cycleTopUpAmount,
+              #deferred(
+                "bought cycles have not settled into the deposit balance yet (balance: "
+                # settled.toText() # ", needed: "
+                # (demand.cycleTopUpAmount + tcyclesLedgerFee).toText()
+                # ") — the next cycle check will complete this top-up"
+              ),
+              ?{
+                source;
+                amountIn = resolution.icpContribution;
+                amountOut = resolution.tcyclesDelivered;
+                outcome = #ok;
+              },
+              0,
+              null,
+              0,
+            );
+            inFlightRemove(demand.owner, demand.canisterId);
+            continue retryLoop;
+          };
           let retryOutcome : { #ok : Nat; #err : Text } = try {
             let result = await cyclesLedger.withdraw({
               from_subaccount = ?Subaccount.ofPrincipal(demand.owner);

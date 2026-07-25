@@ -213,6 +213,11 @@ function ActivityFeed({ activity, limit = 9 }: { activity: FleetActivityItem[]; 
       {activity.slice(0, limit).map((item) => {
         const u = item.topUp;
         const ok = u.result.__kind__ === 'ok';
+        // Cycles bought but not yet settled into the deposit balance — the next
+        // check completes it, so it reads as pending rather than failed.
+        const deferred = u.result.__kind__ === 'deferred';
+        const tone = ok ? 'var(--accent-ink)' : deferred ? 'var(--warn)' : 'var(--crit)';
+        const wash = ok ? 'var(--accent)' : deferred ? 'var(--warn)' : 'var(--crit)';
         return (
           <div
             key={item.key}
@@ -233,11 +238,11 @@ function ActivityFeed({ activity, limit = 9 }: { activity: FleetActivityItem[]; 
                 display: 'grid',
                 placeItems: 'center',
                 marginTop: 1,
-                background: ok ? 'var(--accent-soft)' : 'color-mix(in oklch, var(--crit) 14%, transparent)',
-                border: `1px solid ${ok ? 'var(--accent-line)' : 'color-mix(in oklch, var(--crit) 32%, transparent)'}`,
+                background: ok ? 'var(--accent-soft)' : `color-mix(in oklch, ${wash} 14%, transparent)`,
+                border: `1px solid ${ok ? 'var(--accent-line)' : `color-mix(in oklch, ${wash} 32%, transparent)`}`,
               }}
             >
-              <Icon name={ok ? 'bolt' : 'x'} size={12} style={{ color: ok ? 'var(--accent-ink)' : 'var(--crit)' }} />
+              <Icon name={ok ? 'bolt' : deferred ? 'clock' : 'x'} size={12} style={{ color: tone }} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
@@ -246,9 +251,9 @@ function ActivityFeed({ activity, limit = 9 }: { activity: FleetActivityItem[]; 
                 </span>
                 <span
                   className="mono"
-                  style={{ fontSize: 12, color: ok ? 'var(--accent-ink)' : 'var(--crit)', whiteSpace: 'nowrap' }}
+                  style={{ fontSize: 12, color: tone, whiteSpace: 'nowrap' }}
                 >
-                  {ok ? '+' : '×'}
+                  {ok ? '+' : deferred ? '⋯' : '×'}
                   <TC raw={u.amount} /> TC
                 </span>
               </div>
@@ -261,6 +266,11 @@ function ActivityFeed({ activity, limit = 9 }: { activity: FleetActivityItem[]; 
               {u.result.__kind__ === 'err' && (
                 <div className="mono" style={{ fontSize: 10, color: 'var(--crit)', marginTop: 2, whiteSpace: 'normal', lineHeight: 1.4 }}>
                   {u.result.err}
+                </div>
+              )}
+              {u.result.__kind__ === 'deferred' && (
+                <div className="mono" style={{ fontSize: 10, color: 'var(--warn)', marginTop: 2, whiteSpace: 'normal', lineHeight: 1.4 }}>
+                  {u.result.deferred}
                 </div>
               )}
             </div>

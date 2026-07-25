@@ -222,6 +222,7 @@ type TopUp =
    feeError: opt text;
    rebateApplied: nat;
    result: variant {
+             deferred: text;
              err: text;
              ok: nat;
            };

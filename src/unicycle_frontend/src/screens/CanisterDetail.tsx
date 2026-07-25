@@ -217,16 +217,21 @@ function HistoryChart({ points, minTC, status, topUps }: { points: Point[]; minT
             const ms = nsToMs(u.attemptedAt);
             const [cx, cy] = posForMs(ms);
             const ok = u.result.__kind__ === 'ok';
+            // Deferred is neither: the cycles were bought but had not settled
+            // into the deposit balance yet, so the next check completes it.
+            const deferred = u.result.__kind__ === 'deferred';
             const funding = u.swap
               ? `${u.swap.source} · ${fmtICP(u.swap.amountIn, 2)} ICP → ${fmtTC(u.swap.amountOut)} TC`
               : 'deposit balance';
             const title = ok
               ? `Top-up +${fmtTC(u.amount, 3)} TC\n${fmtDateTime(ms)}\n${funding}` +
                 (u.serviceFee > 0n ? `\nfee ${fmtTC(u.serviceFee, 3)} TC` : '')
-              : `Top-up failed\n${fmtDateTime(ms)}${u.result.__kind__ === 'err' ? `\n${u.result.err}` : ''}`;
+              : u.result.__kind__ === 'deferred'
+                ? `Top-up pending\n${fmtDateTime(ms)}\n${funding}\n${u.result.deferred}`
+                : `Top-up failed\n${fmtDateTime(ms)}${u.result.__kind__ === 'err' ? `\n${u.result.err}` : ''}`;
             return (
               <g key={`tu${i}`}>
-                <circle cx={cx} cy={cy} r="4" fill={ok ? 'var(--accent)' : 'var(--crit)'} stroke="var(--panel)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                <circle cx={cx} cy={cy} r="4" fill={ok ? 'var(--accent)' : deferred ? 'var(--warn)' : 'var(--crit)'} stroke="var(--panel)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
                 <circle cx={cx} cy={cy} r="8" fill="transparent">
                   <title>{title}</title>
                 </circle>
@@ -609,14 +614,16 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
             <tbody>
               {topUps.map((u: TopUp, i) => {
                 const ok = u.result.__kind__ === 'ok';
+                const deferred = u.result.__kind__ === 'deferred';
+                const tone = ok ? 'var(--accent-ink)' : deferred ? 'var(--warn)' : 'var(--crit)';
                 return (
                   <tr key={i}>
                     <td>
-                      <Icon name={ok ? 'bolt' : 'x'} size={13} style={{ color: ok ? 'var(--accent-ink)' : 'var(--crit)' }} />
+                      <Icon name={ok ? 'bolt' : deferred ? 'clock' : 'x'} size={13} style={{ color: tone }} />
                     </td>
                     <td className="mono" style={{ fontSize: 11.5 }}>{fmtDateTime(nsToMs(u.attemptedAt))}</td>
-                    <td className="num mono" style={{ color: ok ? 'var(--accent-ink)' : 'var(--crit)', fontWeight: 600 }}>
-                      {ok ? '+' : '×'}
+                    <td className="num mono" style={{ color: tone, fontWeight: 600 }}>
+                      {ok ? '+' : deferred ? '⋯' : '×'}
                       <TC raw={u.amount} /> TC
                     </td>
                     <td>
@@ -634,6 +641,14 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
                           style={{ fontSize: 9.5, color: 'var(--crit)', marginTop: 3, maxWidth: 340, whiteSpace: 'normal', lineHeight: 1.4 }}
                         >
                           {u.result.err}
+                        </div>
+                      )}
+                      {u.result.__kind__ === 'deferred' && (
+                        <div
+                          className="mono"
+                          style={{ fontSize: 9.5, color: 'var(--warn)', marginTop: 3, maxWidth: 340, whiteSpace: 'normal', lineHeight: 1.4 }}
+                        >
+                          {u.result.deferred}
                         </div>
                       )}
                     </td>

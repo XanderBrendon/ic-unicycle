@@ -73,6 +73,36 @@ test("directTopUpNeeded = amount + fee + 2*ledgerFee; deficit saturates", func()
   assert SwapMath.deficit(50, 100) == 0;
 });
 
+test("drawFromBalance: pot covers the draw -> no deficit, pot shrinks", func() {
+  let (d, rest) = SwapMath.drawFromBalance(30, 100);
+  assert d == 0 and rest == 70;
+  let (d2, rest2) = SwapMath.drawFromBalance(100, 100); // exact
+  assert d2 == 0 and rest2 == 0;
+});
+
+test("drawFromBalance: pot short -> deficit is the shortfall, pot empties", func() {
+  let (d, rest) = SwapMath.drawFromBalance(125, 100);
+  assert d == 25 and rest == 0;
+  let (d2, rest2) = SwapMath.drawFromBalance(50, 0);
+  assert d2 == 50 and rest2 == 0;
+});
+
+// The bug this exists for: one owner's canisters share ONE deposit subaccount,
+// so subtracting the same balance from every candidate under-buys the group
+// swap by (k-1)*balance and leaves the last candidates short. Drawing the pot
+// down makes the deficits sum to exactly (sum of needs - balance).
+test("drawFromBalance: sequential draws sum to (total need - shared balance)", func() {
+  let needs = [100, 200, 300]; // 600 total against a 250 pot -> 350 to buy
+  var pot : Nat = 250;
+  var totalDeficit : Nat = 0;
+  for (need in needs.vals()) {
+    let (d, rest) = SwapMath.drawFromBalance(need, pot);
+    totalDeficit += d;
+    pot := rest;
+  };
+  assert totalDeficit == 350;
+});
+
 test("harvestThresholdPrecheck: TCYCLES leg alone clears -> #meets (no rate needed)", func() {
   switch (SwapMath.harvestThresholdPrecheck(100, 0, 100)) { case (#meets) {}; case _ { assert false } }; // exactly at threshold
   switch (SwapMath.harvestThresholdPrecheck(150, 5, 100)) { case (#meets) {}; case _ { assert false } }; // over, ICP owed irrelevant
