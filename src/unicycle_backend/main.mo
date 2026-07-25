@@ -39,11 +39,7 @@ import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
-import Migration "migration";
 
-// One-shot: retypes topUpHistory for TopUp.result's added `#deferred` case.
-// Remove this and `migration.mo` in the first commit after the upgrade lands.
-(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
