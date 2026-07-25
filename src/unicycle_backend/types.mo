@@ -44,8 +44,18 @@ module {
   // TopUp, SwapAttempt, CycleReading, HarvestEvent, LpEvent, BalanceEvent,
   // LogEntry, MetricsSnapshot, LoyaltyAccount, AdminSettings. Several embed
   // closed inline variants (e.g. `result`, BalanceEventKind, LogCategory,
-  // SwapAttempt.source) — adding a tag to a variant is compatible, but changing
-  // an existing tag's payload type is not.
+  // SwapAttempt.source). Adding a tag to one of those is compatible on the
+  // CANDID wire — but that says nothing about STABLE storage, where the
+  // invariant-position rule above still governs: a tag added to a variant
+  // inside a Map-stored record TRAPS at install (M0170) and needs an explicit
+  // migration, exactly like an additive optional field. Precedent:
+  // `TopUp.result` gained `#deferred` behind a one-shot migration module.
+  // Changing an existing tag's payload type is incompatible either way.
+  //
+  // Verify before every deploy — this check is cheap and catches M0170 without
+  // burning a failed install (`<pre>` = the .most of the DEPLOYED commit):
+  //   moc --stable-types -o /tmp/new.wasm src/unicycle_backend/main.mo
+  //   moc --stable-compatible /tmp/pre.most /tmp/new.most
   // ===========================================================================
 
   // ---------------------------------------------------------------------------
@@ -317,6 +327,10 @@ module {
   // the settled balance. Recorded (rather than dropped) so the swap leg and its
   // balance events still land in history; excluded from the failure counters
   // because nothing failed.
+  //
+  // `#deferred` was additive but still shipped with a one-shot
+  // `(with migration = …)`: TopUp is stored in `topUpHistory`'s Maps, an
+  // invariant position (see the policy block above).
   public type TopUp = {
     attemptedAt : Nat;
     amount : Nat;

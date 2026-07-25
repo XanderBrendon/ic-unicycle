@@ -39,7 +39,11 @@ import TokenBucket "lib/TokenBucket";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
+import Migration "migration";
 
+// One-shot: retypes topUpHistory for TopUp.result's added `#deferred` case.
+// Remove this and `migration.mo` in the first commit after the upgrade lands.
+(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -4923,11 +4927,19 @@ persistent actor class Unicycle(
   // Admin correction for the tracked harvested-ICP counter (2026-07-15 harvest
   // rework). Sets `pendingHarvestIcp` outright. Used once after the 2026-07
   // incident deploy to fold the stranded claimed ICP (5_597_725 e8s) into the
-  // next drain — a `(with migration = …)` seed was tried first and abandoned:
-  // while attached, every subsequent upgrade of the same binary traps with
-  // "Memory-incompatible program upgrade". Also reconciles the counter's
-  // deliberate conservative drift (failed drain legs shave fees). The value
-  // set must never exceed the backend-owned ICP in the default account.
+  // next drain, and kept for the counter's deliberate conservative drift
+  // (failed drain legs shave fees) — ongoing reconciliation no one-shot
+  // migration could provide. The value set must never exceed the
+  // backend-owned ICP in the default account.
+  //
+  // CORRECTION: an earlier note here said a `(with migration = …)` seed had
+  // been abandoned because "while attached, every subsequent upgrade of the
+  // same binary traps". That reads as "migrations are unusable" and is a
+  // misreading — it is the normal one-shot lifecycle. A migration ships,
+  // lands, and is REMOVED in the next commit; while still attached, the
+  // following upgrade fails the domain compatibility check precisely because
+  // the state it expects has already been migrated. See migration.mo and the
+  // schema-evolution policy at the top of types.mo.
   public shared ({ caller }) func adminSetPendingHarvestIcp(amount : Nat) : async Result.Result<(), AdminError> {
     if (caller.isAnonymous()) return #err(#anonymous);
     if (not isAdmin(caller)) return #err(#notAdmin);
