@@ -4931,15 +4931,6 @@ persistent actor class Unicycle(
   // (failed drain legs shave fees) — ongoing reconciliation no one-shot
   // migration could provide. The value set must never exceed the
   // backend-owned ICP in the default account.
-  //
-  // CORRECTION: an earlier note here said a `(with migration = …)` seed had
-  // been abandoned because "while attached, every subsequent upgrade of the
-  // same binary traps". That reads as "migrations are unusable" and is a
-  // misreading — it is the normal one-shot lifecycle. A migration ships,
-  // lands, and is REMOVED in the next commit; while still attached, the
-  // following upgrade fails the domain compatibility check precisely because
-  // the state it expects has already been migrated. See migration.mo and the
-  // schema-evolution policy at the top of types.mo.
   public shared ({ caller }) func adminSetPendingHarvestIcp(amount : Nat) : async Result.Result<(), AdminError> {
     if (caller.isAnonymous()) return #err(#anonymous);
     if (not isAdmin(caller)) return #err(#notAdmin);
