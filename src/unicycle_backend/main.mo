@@ -1345,11 +1345,27 @@ persistent actor class Unicycle(
 
       let kept = List.empty<Types.SwapDemand>();
       var dropped : Nat = 0;
+      // One shared ICP pot per owner, for the same reason the TCYCLES deficits
+      // are allocated from a per-owner pot: deposit subaccounts are keyed by
+      // OWNER, so every participant of one owner funds its share from the same
+      // balance. Checking each share against the full balance independently let
+      // an owner who could afford ONE share pass all k checks, and the later
+      // `prepareAndDepositIcp` calls then failed on a balance the earlier ones
+      // had already spent. Re-created per pass, so a re-quote re-reads balances
+      // exactly as before.
+      let icpPot = Map.empty<Principal, Nat>();
       for (d in survivors.vals()) {
         let share = SwapMath.proportionalShare(quotedInput, d.deficit, groupDemand);
-        let balance = await icpBalanceOf(d.owner);
         let need = share + 3 * icpLedgerFee;
-        if (balance < need) {
+        let pot = switch (icpPot.get(d.owner)) {
+          case (?p) p;
+          case null { await icpBalanceOf(d.owner) };
+        };
+        let (shortfall, potAfter) = SwapMath.drawFromBalance(need, pot);
+        if (shortfall > 0) {
+          // Dropped, so this share is never spent — the pot carries forward
+          // intact for this owner's remaining (possibly smaller) participants.
+          icpPot.add(d.owner, pot);
           putResolution(
             resolutions,
             d.owner,
@@ -1361,12 +1377,13 @@ persistent actor class Unicycle(
                 "insufficient ICP for proportional share: needed "
                 # need.toText()
                 # ", had "
-                # balance.toText()
+                # pot.toText()
               );
             },
           );
           dropped += 1;
         } else {
+          icpPot.add(d.owner, potAfter);
           kept.add(d);
         };
       };
