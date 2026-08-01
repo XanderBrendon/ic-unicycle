@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import type { Principal } from '@icp-sdk/core/principal';
 import { Icon } from '../ui/icons';
-import { Panel, Empty, StatusBadge, TC } from '../ui/primitives';
+import { BurnPerDay, Empty, NextTopUp, Panel, StatusBadge, TC } from '../ui/primitives';
 import { AreaChart, FuelBar, MiniBars, Sparkline } from '../ui/charts';
 import {
   fmtAgo,
@@ -51,52 +51,14 @@ interface SortState {
 const healthRatio = (c: FleetCanister): number => (c.cur === null ? Infinity : Number(c.cur) / Number(c.min));
 
 /* ---------------- burn / next-top-up cells ---------------- */
-// Trailing-7d average daily burn, in TC/day. A null rate is "measuring" (under a
-// day of history); 0 is a real reading — a genuinely idle canister — so it shows
-// as 0.00 rather than an em dash.
-function BurnPerDay({ c }: { c: FleetCanister }) {
-  if (c.burnPerDayCycles === null) {
-    return <span className="faint" title="measuring — needs ≥1 day of history">—</span>;
-  }
-  return <TC raw={c.burnPerDayCycles / TC_UNIT} dp={2} />;
-}
-
-interface NextProjection {
-  text: string;
-  title: string;
-  color?: string;
-  faint?: boolean;
-}
-
-// Projected next top-up from the burn rate, current balance and `min` threshold.
-// Order matters: `estDaysToTopUp` collapses several distinct situations into
-// null, and suspension / no-readings must be reported ahead of them.
-function nextTopUpProjection(c: FleetCanister, nowMs: number): NextProjection {
-  if (c.suspended) return { text: '—', title: 'suspended — top-ups paused', faint: true };
-  if (c.cur === null) return { text: '—', title: 'no readings yet', faint: true };
-  const days = c.estDaysToTopUp;
-  if (days === 0) return { text: 'due now', title: 'below threshold', color: 'var(--crit)' };
-  // Both a still-measuring and a genuinely idle canister estimate to null, but
-  // they mean opposite things — "we don't know yet" vs "it isn't burning". Only
-  // the latter may claim stability.
-  if (c.burnPerDayCycles === null) return { text: '—', title: 'measuring — needs ≥1 day of history', faint: true };
-  if (days === null) return { text: 'stable', title: 'no burn observed in the last 7 days', faint: true };
-  // A tiny-but-nonzero burn projects a date past JS's max Date, which makes
-  // fmtDate throw "Invalid time value" — cap it into the same "stable" reading.
-  if (days > MAX_RUNWAY_DAYS) return { text: 'stable', title: 'beyond 100 years at current burn', faint: true };
-  const atMs = nowMs + days * DAY_MS;
-  // Warn at the same ≤3 days healthStatus uses, so this can't contradict the dot.
-  return { text: `in ${fmtUntil(atMs, nowMs)}`, title: `~${fmtDate(atMs)}`, color: days <= 3 ? 'var(--warn)' : undefined };
-}
-
-function NextTopUp({ c, nowMs }: { c: FleetCanister; nowMs: number }) {
-  const p = nextTopUpProjection(c, nowMs);
-  return (
-    <span className={p.faint ? 'faint' : ''} style={{ color: p.color }} title={p.title}>
-      {p.text}
-    </span>
-  );
-}
+// Props for the shared <NextTopUp> cell, which the canister detail page renders
+// from the same values.
+const nextProps = (c: FleetCanister) => ({
+  suspended: c.suspended,
+  cur: c.cur,
+  cycles: c.burnPerDayCycles,
+  estDays: c.estDaysToTopUp,
+});
 
 // Sort value mirroring the projection: due-now first, then soonest, with
 // unestimatable/suspended rows last.
@@ -493,8 +455,8 @@ function FleetTable({
             </td>
             <td className="num mono faint"><TC raw={c.min} /></td>
             <td className="num mono faint"><TC raw={c.topup} /></td>
-            <td className="num mono"><BurnPerDay c={c} /></td>
-            <td className="num mono"><NextTopUp c={c} nowMs={now} /></td>
+            <td className="num mono"><BurnPerDay cycles={c.burnPerDayCycles} /></td>
+            <td className="num mono"><NextTopUp {...nextProps(c)} nowMs={now} /></td>
             <td>
               <Sparkline data={c.series} w={80} h={22} color={statusColor(c.status)} fill />
             </td>
@@ -523,10 +485,11 @@ function FleetTable({
                 <span className="ellipsis">{c.label}</span>
                 {c.snsRoot && (
                   <span
+                    className="ellipsis"
                     style={{
                       fontSize: 9.5, fontWeight: 600, padding: '1px 6px', borderRadius: 5,
                       border: '1px solid var(--border-2)', color: 'var(--text-2)',
-                      whiteSpace: 'nowrap', flex: 'none',
+                      minWidth: 0,
                     }}
                   >
                     {snsNames?.[c.snsRoot.toText()] ?? fmtPid(c.snsRoot.toText(), 4, 3)}
@@ -542,8 +505,8 @@ function FleetTable({
             <div><label>Balance</label><span className="v" style={{ color: statusColor(c.status) }}><TC raw={c.cur} /></span></div>
             <div><label>Min</label><span className="v faint"><TC raw={c.min} /></span></div>
             <div><label>Top-up</label><span className="v faint"><TC raw={c.topup} /></span></div>
-            <div><label>Burn/day</label><span className="v"><BurnPerDay c={c} /></span></div>
-            <div><label>Next</label><span className="v"><NextTopUp c={c} nowMs={now} /></span></div>
+            <div><label>Burn/day</label><span className="v"><BurnPerDay cycles={c.burnPerDayCycles} /></span></div>
+            <div><label>Next</label><span className="v"><NextTopUp {...nextProps(c)} nowMs={now} /></span></div>
             <div><label>Last</label><span className="v faint">{c.suspended || c.lastReadingMs === null ? '—' : fmtAgo(c.lastReadingMs, now)}</span></div>
           </div>
         </button>

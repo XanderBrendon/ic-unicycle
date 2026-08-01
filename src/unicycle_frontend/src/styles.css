@@ -441,15 +441,36 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 
 /* mobile-only affordances, hidden on desktop */
 .nav-toggle, .brand-close { display: none; }
-.fleet-cards { display: none; flex-direction: column; gap: 8px; padding: 10px var(--pad) 14px; }
+/* auto-fill rather than a single column: the cards now stand in for the table
+   from 1080px down, which is wide enough to seat two or three of them per row. */
+.fleet-cards { display: none; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; padding: 10px var(--pad) 14px; }
+
+/* ---- Fleet: drop the activity rail before the page has to scroll ----
+   The fleet table stops shrinking at 810px (11 columns, all of them already at
+   their minimum) and the activity rail is a fixed 340px, so `1fr 340px` needs
+   ~1215px of page width — about 1440px of window once the 224px sidebar and the
+   page padding are taken off, and ~20px more at comfortable density where --gap
+   is 22px. Below that the two columns can't shrink any further and the page
+   overflowed horizontally, so this stacks them at the point they stop fitting
+   rather than at an arbitrary tablet width. */
+@media (max-width: 1460px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
+  .fleet-layout { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Fleet: swap the table for cards once even one column can't hold it ----
+   Same reasoning one step down: stacked, the 810px table needs ~832px of page
+   width, i.e. ~1056px of window with the sidebar in place. */
+@media (max-width: 1080px) {
+  .tbl-fleet { display: none; }
+  .fleet-cards { display: grid; }
+}
 
 /* ---- Tablet: relax the widest multi-column grids ---- */
 @media (max-width: 1024px) {
   .rg6 { grid-template-columns: repeat(3, 1fr) !important; }
   .rg5 { grid-template-columns: repeat(3, 1fr) !important; }
   .rg4 { grid-template-columns: repeat(2, 1fr) !important; }
-  .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
-  .fleet-layout { grid-template-columns: 1fr !important; }
 }
 
 /* ---- Drawer nav: sidebar becomes an off-canvas drawer ---- */
@@ -495,9 +516,8 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
   /* panel headers wrap their actions below the title */
   .panel-head { flex-wrap: wrap; }
 
-  /* fleet: swap the wide table for stacked cards */
-  .tbl-fleet { display: none; }
-  .fleet-cards { display: flex; }
+  /* fleet: the table/card swap already happened at 1080px — just let the
+     toolbar's search box span the row */
   .fleet-toolbar .input-suffix { width: 100% !important; margin-left: 0 !important; }
 
   /* cycle-history panel needs an explicit height once un-stretched */
@@ -533,6 +553,10 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
   background: var(--panel-2);
 }
 .fleet-card:active { background: var(--elevated); }
+/* the card's rows are grid items, so their automatic minimum size is min-content
+   — a long nickname or SNS name would otherwise widen the card past its track
+   instead of ellipsizing inside it. */
+.fleet-card > * { min-width: 0; }
 .fc-top { display: flex; align-items: center; gap: 9px; }
 .fc-name { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
 .fc-title { font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }

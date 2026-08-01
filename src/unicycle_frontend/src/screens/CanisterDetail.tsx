@@ -10,7 +10,7 @@ import { createUnicycleBackendActor } from '../auth/actor';
 import { useCanisterHistory } from '../canisters/useCanisterHistory';
 import { EditCanisterModal } from '../canisters/CanisterModals';
 import { Icon } from '../ui/icons';
-import { Panel, KV, Seg, StatusBadge, Empty, Modal, ErrorText, TC } from '../ui/primitives';
+import { Panel, KV, Seg, StatusBadge, Empty, Modal, ErrorText, TC, BurnPerDay, NextTopUp } from '../ui/primitives';
 import { HealthGauge, GAUGE_STYLE } from '../ui/charts';
 import {
   canisterBurnPerDayCycles,
@@ -328,7 +328,8 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
   const min = config.minCycleBalance;
   const topup = config.cycleTopUpAmount;
   const suspended = config.suspendedUntil !== undefined;
-  const estDays = estDaysToTopUp(cur, min, canisterBurnPerDayCycles(readingsAsc, Date.now()));
+  const burnPerDayCycles = canisterBurnPerDayCycles(readingsAsc, Date.now());
+  const estDays = estDaysToTopUp(cur, min, burnPerDayCycles);
   const status = healthStatus(cur, min, suspended, { topUpAmount: topup, estDays });
   const label = config.nickname ?? fmtPid(idText);
   const ratioPct = cur === null ? 0 : Math.round((Number(cur) / Number(min)) * 100);
@@ -504,6 +505,10 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
           </KV>
           <KV k="Min cycle balance"><TC raw={min} /> TC</KV>
           <KV k="Top-up amount"><TC raw={topup} /> TC</KV>
+          <KV k="Burn/day"><BurnPerDay cycles={burnPerDayCycles} unit /></KV>
+          <KV k="Next top-up">
+            <NextTopUp suspended={suspended} cur={cur} cycles={burnPerDayCycles} estDays={estDays} nowMs={now} />
+          </KV>
           <KV k="Last check">{suspended || lastReadingMs === null ? '—' : fmtAgo(lastReadingMs, now)}</KV>
           <KV k="Next check">{suspended || schedule.nextCheckMs === null ? '—' : `~${fmtUntil(schedule.nextCheckMs, now)}`}</KV>
         </Panel>

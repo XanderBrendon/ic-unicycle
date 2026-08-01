@@ -2,7 +2,22 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
-import { fmtPid, fmtTC, fmtTCFull, statusClass, statusColor, STATUS_LABEL, type Status, type UserError } from './format';
+import {
+  fmtDate,
+  fmtPid,
+  fmtTC,
+  fmtTCFull,
+  fmtUntil,
+  MAX_RUNWAY_DAYS,
+  statusClass,
+  statusColor,
+  STATUS_LABEL,
+  type Status,
+  type UserError,
+} from './format';
+
+const TC_UNIT = 1e12;
+const DAY_MS = 86_400_000;
 
 export function Panel({
   title,
@@ -84,6 +99,69 @@ export function Stat({
 export function TC({ raw, dp = 2 }: { raw: bigint | number | null | undefined; dp?: number }) {
   if (raw === null || raw === undefined) return <>{fmtTC(raw, dp)}</>;
   return <span title={`${fmtTCFull(raw)} TC`}>{fmtTC(raw, dp)}</span>;
+}
+
+// Trailing-window average daily burn, in TC/day. A null rate is "measuring"
+// (under a day of history); 0 is a real reading — a genuinely idle canister — so
+// it shows as 0.00 rather than an em dash. `unit` appends "TC" for callers that
+// don't carry it in a column header.
+export function BurnPerDay({ cycles, unit }: { cycles: number | null; unit?: boolean }) {
+  if (cycles === null) {
+    return <span className="faint" title="measuring — needs ≥1 day of history">—</span>;
+  }
+  return (
+    <>
+      <TC raw={cycles / TC_UNIT} dp={2} />
+      {unit && ' TC'}
+    </>
+  );
+}
+
+interface NextProjection {
+  text: string;
+  title: string;
+  color?: string;
+  faint?: boolean;
+}
+
+// Projected next top-up from the burn rate, current balance and `min` threshold.
+// Order matters: `estDaysToTopUp` collapses several distinct situations into
+// null, and suspension / no-readings must be reported ahead of them.
+function nextTopUpProjection(p: NextTopUpProps, nowMs: number): NextProjection {
+  if (p.suspended) return { text: '—', title: 'suspended — top-ups paused', faint: true };
+  if (p.cur === null) return { text: '—', title: 'no readings yet', faint: true };
+  if (p.estDays === 0) return { text: 'due now', title: 'below threshold', color: 'var(--crit)' };
+  // Both a still-measuring and a genuinely idle canister estimate to null, but
+  // they mean opposite things — "we don't know yet" vs "it isn't burning". Only
+  // the latter may claim stability.
+  if (p.cycles === null) return { text: '—', title: 'measuring — needs ≥1 day of history', faint: true };
+  if (p.estDays === null) return { text: 'stable', title: 'no burn observed in the last 7 days', faint: true };
+  // A tiny-but-nonzero burn projects a date past JS's max Date, which makes
+  // fmtDate throw "Invalid time value" — cap it into the same "stable" reading.
+  if (p.estDays > MAX_RUNWAY_DAYS) return { text: 'stable', title: 'beyond 100 years at current burn', faint: true };
+  const atMs = nowMs + p.estDays * DAY_MS;
+  // Warn at the same ≤3 days healthStatus uses, so this can't contradict the dot.
+  return {
+    text: `in ${fmtUntil(atMs, nowMs)}`,
+    title: `~${fmtDate(atMs)}`,
+    color: p.estDays <= 3 ? 'var(--warn)' : undefined,
+  };
+}
+
+export interface NextTopUpProps {
+  suspended: boolean;
+  cur: bigint | null;
+  cycles: number | null; // burn per day, in cycles; null while "measuring"
+  estDays: number | null; // estDaysToTopUp(cur, min, cycles)
+}
+
+export function NextTopUp({ nowMs, ...p }: NextTopUpProps & { nowMs: number }) {
+  const proj = nextTopUpProjection(p, nowMs);
+  return (
+    <span className={proj.faint ? 'faint' : ''} style={{ color: proj.color }} title={proj.title}>
+      {proj.text}
+    </span>
+  );
 }
 
 export function StatusBadge({ status, dot = true }: { status: Status; dot?: boolean }) {
