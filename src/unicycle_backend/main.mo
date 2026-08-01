@@ -120,7 +120,6 @@ persistent actor class Unicycle(
   public type IcpSwapPoolError = Types.IcpSwapPoolError;
   public type IcpSwapPoolToken = Types.IcpSwapPoolToken;
   public type IcpSwapPoolMetadata = Types.IcpSwapPoolMetadata;
-  public type DrainSeedPoint = Types.DrainSeedPoint;
 
   // ---------------------------------------------------------------------------
   // Blackhole canister reference. The blackhole proxies the management
@@ -5245,38 +5244,6 @@ persistent actor class Unicycle(
     #ok(await checkSnsDrainAlert(governance, root, cfg));
   };
 
-  // Admin-only seeding diagnostic (US26). Unlike US24/US25's skip/submit paths,
-  // the drain-alert headline path needs a day-spanning cycle spike in
-  // `cycleHistory`, which there is no production way to create on the local replica
-  // (US06 registration requires blackhole controllership and the recurring recorder
-  // writes real balances at one instant). This overwrites the canister's history
-  // with `#ok` readings at `now − daysAgo·DAY_NS` and inserts a placeholder tracked
-  // entry under `owner`, bypassing US06's precondition — the same spirit as
-  // US24/US25's admin run-check twins. Admin-gated; never SNS-callable.
-  public shared ({ caller }) func adminSeedDrainFixture(
-    owner : Principal, canisterId : Principal, points : [DrainSeedPoint],
-  ) : async Result.Result<(), AdminError> {
-    if (caller.isAnonymous()) return #err(#anonymous);
-    if (not isAdmin(caller)) return #err(#notAdmin);
-    log(#info, #admin, "adminSeedDrainFixture " # canisterId.toText() # " (" # points.size().toText() # " points)", ?caller);
-    let now = Int.abs(Time.now());
-    // newest-first (cycleHistory invariant): smallest daysAgo first
-    let sorted = Array.sort<DrainSeedPoint>(points, func(a, b) { Nat.compare(a.daysAgo, b.daysAgo) });
-    let readings = Array.map<DrainSeedPoint, CycleReading>(sorted, func(p) {
-      { recordedAt = if (now > p.daysAgo * Durations.DAY_NS) { now - p.daysAgo * Durations.DAY_NS } else { 0 }; result = #ok(p.balanceCycles) };
-    });
-    cycleHistory.add(canisterId, readings);
-    let userMap = switch (tracked.get(owner)) {
-      case (?m) m;
-      case null { let f = Map.empty<Principal, CanisterConfig>(); tracked.add(owner, f); f };
-    };
-    switch (userMap.get(canisterId)) {
-      case (?_) {};
-      case null { userMap.add(canisterId, { minCycleBalance = 1; cycleTopUpAmount = 1; suspendedUntil = null; nickname = null; snsRoot = null }) };
-    };
-    #ok();
-  };
-
   // ---------------------------------------------------------------------------
   // Ingress message inspection (todo-25) — cycle-drain pre-filter.
   //
@@ -5301,9 +5268,8 @@ persistent actor class Unicycle(
   //
   // Payloads are typed `Any` (we never decode them here, only the caller + the
   // raw `arg` size matter). The global cap sheds oversized argument blobs up
-  // front: every real call is well under 1 KiB — the only variable-size args are
-  // a `CanisterConfig` nickname (a short UI label) and `adminSeedDrainFixture`'s
-  // point vector (a few hundred points, admin-only local diagnostic). 4 KiB
+  // front: every real call is well under 1 KiB — the only variable-size arg is
+  // a `CanisterConfig` nickname (a short UI label). 4 KiB
   // leaves comfortable headroom while bounding how much junk an identity-passing
   // caller can force the canister to ingest per message: inspect doesn't decode
   // the arg, so a malformed-but-accepted blob is paid for at induction, then
@@ -5334,7 +5300,6 @@ persistent actor class Unicycle(
         #adminListAllTracked : Any;
         #adminListRecentTopUps : Any;
         #adminRemoveCanister : Any;
-        #adminSeedDrainFixture : Any;
         #adminListTunables : Any;
         #adminSetPendingHarvestIcp : Any;
         #adminSetTunable : Any;
@@ -5435,7 +5400,7 @@ persistent actor class Unicycle(
         or #adminFundLpPosition _
         or #adminHarvestLpRewards _ or #adminSubmitSnsTestMotion _ or #adminSnsSetup _
         or #adminSnsRunDepositCheck _ or #adminSnsRunReportCheck _
-        or #adminSnsRunDrainAlertCheck _ or #adminSeedDrainFixture _
+        or #adminSnsRunDrainAlertCheck _
         or #adminRemoveCanister _ or #adminSnsDeregister _
         or #adminSetPendingHarvestIcp _ or #adminSetTunable _
       ) { isAdmin(caller) };

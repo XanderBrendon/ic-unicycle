@@ -759,6 +759,4 @@ module {
 
   public type SnsFunctionSpec = { name : Text; description : Text; target : Text; validator : Text };
 
-  public type DrainSeedPoint = { daysAgo : Nat; balanceCycles : Nat };
-
 }

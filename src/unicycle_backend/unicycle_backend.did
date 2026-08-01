@@ -71,8 +71,6 @@ type Unicycle =
    adminListAllTracked: () -> (Result_15) query;
    adminListRecentTopUps: (limit: nat) -> (Result_14) query;
    adminRemoveCanister: (owner: principal, canisterId: principal) -> (Result_25);
-   adminSeedDrainFixture: (owner: principal, canisterId: principal, points:
-    vec DrainSeedPoint) -> (Result_3);
    adminListTunables: () -> (Result_26) query;
    adminSetPendingHarvestIcp: (amount: nat) -> (Result_3);
    adminSetTunable: (key: text, value: opt nat) -> (Result_27);
@@ -630,11 +628,6 @@ type HarvestEvent =
             };
    toAdmin: nat;
    toSurplus: nat;
- };
-type DrainSeedPoint =
- record {
-   balanceCycles: nat;
-   daysAgo: nat;
  };
 type DepositError =
  variant {

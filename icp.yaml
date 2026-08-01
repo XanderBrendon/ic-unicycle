@@ -170,6 +170,24 @@ canisters:
     # inferring nat — an unannotated value trips "Subtyping error: nat".
     init_args: '(variant { Init = record { token_symbol = "TEST"; token_name = "Test Token"; minting_account = record { owner = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" }; transfer_fee = 10_000 : nat; decimals = opt (8 : nat8); metadata = vec {}; initial_balances = vec {}; feature_flags = opt record { icrc2 = true }; archive_options = record { num_blocks_to_archive = 1_000 : nat64; trigger_threshold = 2_000 : nat64; controller_id = principal "nas6b-kglsn-zvzrl-o4vro-775rf-ls5mb-bwknk-gqgfq-gi2pm-23xbm-gqe" } } })'
 
+  # Build-only fixture for devscripts/seed-local.sh. Its `main` is the generated
+  # overlay — main.mo with the seed block appended to the actor body — which the
+  # script writes, builds via `icp build -e seed`, installs onto the LOCAL
+  # unicycle_backend as an upgrade (the fixtures are written while that upgrade
+  # runs), and then replaces with the production wasm. The overlay adds no public
+  # method, so its candid surface is identical to production's and it reuses the
+  # same .did. This canister is never deployed and never gets an id of its own;
+  # it exists so the seed wasm is built by the real Motoko recipe rather than a
+  # hand-rolled moc invocation that could drift from it. Excluded from `local`
+  # and `production` — it only appears in the `seed` environment below.
+  - name: unicycle_backend_seed
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: src/unicycle_backend/main.seed.mo
+        candid: src/unicycle_backend/unicycle_backend.did
+    init_args: '(principal "46el7-ql777-77775-aaada-cai", principal "4xhad-gd777-77775-aaacq-cai", principal "aiewf-lx777-77775-aaaca-cai", principal "4fbx2-kt777-77775-aaabq-cai")'
+
 environments:
   # Default target for a bare `icp deploy` (no -e). Lists only the core project
   # canisters so routine deploys never touch the on-demand fixtures (the SNS
@@ -191,6 +209,13 @@ environments:
   - name: ledger
     network: local
     canisters: [test_icrc1_ledger, sns_wasm, sns_ledger, sns_index, sns_root, sns_governance]
+
+  # Build-only environment for devscripts/seed-local.sh (`icp build -e seed`).
+  # Never deploy it — the script takes the built artifact and installs it onto
+  # unicycle_backend itself. See the canister comment above.
+  - name: seed
+    network: local
+    canisters: [unicycle_backend_seed]
 
   - name: production
     network: ic
