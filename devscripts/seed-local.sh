@@ -27,6 +27,9 @@ MAIN="$ROOT/src/unicycle_backend/main.mo"
 BLOCK="$ROOT/devscripts/seed/seed_block.mo"
 OVERLAY="$ROOT/src/unicycle_backend/main.seed.mo"
 IDS="$ROOT/.icp/cache/mappings/local.ids.json"
+# The SNS suite is deployed by the `ledger` environment, and icp writes one id
+# mapping per environment — those ids never appear in local.ids.json.
+SNS_IDS="$ROOT/.icp/cache/mappings/ledger.ids.json"
 
 # A structurally valid, obviously-synthetic principal. Used when no second owner
 # is given, so the admin cross-owner tables always have more than one row.
@@ -50,15 +53,19 @@ icp network ping local >/dev/null 2>&1 || die "local network is not running — 
 [ -f "$IDS" ] || die "no local canister id mapping at $IDS — run 'icp deploy' first"
 [ -f "$BLOCK" ] || die "missing fixture block at $BLOCK"
 
-canister_id() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "$IDS" | head -1; }
+canister_id() { sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p" "${2:-$IDS}" | head -1; }
 
 [ -n "$(canister_id unicycle_backend)" ] || die "unicycle_backend is not deployed locally — run 'icp deploy' first"
 
 # The SNS fixtures point at the real local SNS canisters so the SNS screens are
 # not showing dangling principals. Without the `ledger` environment deployed
-# those ids do not exist, so the SNS block is skipped rather than faked.
-SNS_GOV="$(canister_id sns_governance)"
-SNS_ROOT="$(canister_id sns_root)"
+# there is no mapping to read, so the SNS block is skipped rather than faked.
+SNS_GOV=""
+SNS_ROOT=""
+if [ -f "$SNS_IDS" ]; then
+  SNS_GOV="$(canister_id sns_governance "$SNS_IDS")"
+  SNS_ROOT="$(canister_id sns_root "$SNS_IDS")"
+fi
 if [ -n "$SNS_GOV" ] && [ -n "$SNS_ROOT" ]; then
   SNS_ENABLED=true
 else
