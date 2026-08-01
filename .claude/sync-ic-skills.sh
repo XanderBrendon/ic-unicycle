@@ -15,6 +15,21 @@ INDEX_URL="$BASE/index.json"
 DEST=".claude/skills"
 MANIFEST="$DEST/.ic-managed.json"   # { "<skill>": "<hash>" } of skills this script manages
 
+# --- LOCAL MODIFICATION (not upstream) -------------------------------------
+# Skills to keep out of this repo, one name per line. Never downloaded, and
+# deleted if already present.
+#
+# This is a fork of the published script, so upstream fixes no longer arrive on
+# their own (excluding autosync-ic-skills also removes the auto-refreshed copy
+# that used to land in .claude/skills/). To check for upstream changes:
+#
+#   curl -fsSL https://skills.internetcomputer.org/.well-known/skills/autosync-ic-skills/scripts/sync-ic-skills.sh | sha256sum
+#
+# Forked from sha256 3f9a83ccacb1c8585c116518ab5530e321f359ec23478727f36e19e662a3fb8d
+EXCLUDE_SKILLS="caffeine-app
+autosync-ic-skills"
+# ---------------------------------------------------------------------------
+
 mkdir -p "$DEST"
 
 # --- Temp files. NEW_MANIFEST is built up as we go, then swapped in atomically.
@@ -116,6 +131,18 @@ while IFS= read -r entry; do
   name="$(jq -r '.name' <<<"$entry")"
   [ -n "$name" ] && [ "$name" != "null" ] || continue
   is_safe_name "$name" || { echo "[autosync-ic-skills] skipping skill with unsafe name: $name" >&2; continue; }
+
+  # LOCAL MODIFICATION: never install an excluded skill. Skipping `record` also
+  # drops it from the manifest, so it is not treated as managed on later runs.
+  if grep -qxF "$name" <<<"$EXCLUDE_SKILLS"; then
+    if [ -d "$DEST/$name" ]; then
+      rm -rf "${DEST:?}/$name"
+      removed=$((removed + 1))
+      echo "[autosync-ic-skills] excluded: $name" >&2
+    fi
+    continue
+  fi
+
   new_hash="$(jq -r '.hash // ""' <<<"$entry")"
   old_hash="$(stored_hash "$name")"
 
