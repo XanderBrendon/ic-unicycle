@@ -245,15 +245,11 @@ function describe(
   if ('ExecuteGenericNervousSystemFunction' in action) {
     const { function_id, payload } = action.ExecuteGenericNervousSystemFunction;
     const method = ctx.functionMethods.get(function_id);
-    // Unknown id: either not a Unicycle function, or one a deregister removed.
-    // Only the second is interesting, and the proposer alone doesn't separate
-    // them — an SNS may give Unicycle a neuron it also proposes its own
-    // business through, and that neuron's other custom-function proposals would
-    // all land here. So this takes the same pair of tests a Motion does; every
-    // generic-function proposal Unicycle submits is titled "Unicycle: …".
-    if (!method) {
-      return byUnicycle && title.startsWith('Unicycle') ? `Unicycle function #${function_id}` : null;
-    }
+    // The registered functions targeting the Unicycle backend are the whole set.
+    // Anything else is another canister's custom function — the proposer says
+    // nothing, since an SNS may give Unicycle a neuron it also proposes its own
+    // business through.
+    if (!method) return null;
     return describeTwin(method, payload);
   }
 
@@ -289,7 +285,7 @@ export function needsPayload(p: SnsGovernanceDid.ProposalData, ctx: UnicycleCont
   const { function_id, payload } = action.ExecuteGenericNervousSystemFunction;
   if (payload.length > 0) return false;
   const method = ctx.functionMethods.get(function_id);
-  // An unknown id renders as `Unicycle function #N`, which needs no payload.
+  // An unknown id isn't a Unicycle proposal at all, so it never reaches a row.
   return method !== undefined && !(method in FIXED_DESCRIPTIONS);
 }
 
