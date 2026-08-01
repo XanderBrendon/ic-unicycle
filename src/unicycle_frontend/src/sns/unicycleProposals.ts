@@ -133,16 +133,19 @@ function hex(bytes: Uint8Array, max = 8): string {
 // Twin descriptions
 // ---------------------------------------------------------------------------
 
+// Twins whose description says nothing about their arguments. Kept as data
+// rather than switch cases so `needsPayload` can key off the same set: these
+// are exactly the ones that render correctly from a blank payload.
+const FIXED_DESCRIPTIONS: Record<string, string> = {
+  snsSetup: 'Onboard this SNS to Unicycle',
+  snsDeregister: 'Offboard this SNS from Unicycle',
+};
+
 function describeTwin(method: string, payload: Uint8Array): string {
+  const fixed = FIXED_DESCRIPTIONS[method];
+  if (fixed) return fixed;
+
   const arg = decodeArg(method, payload);
-
-  switch (method) {
-    case 'snsSetup':
-      return 'Onboard this SNS to Unicycle';
-    case 'snsDeregister':
-      return 'Offboard this SNS from Unicycle';
-  }
-
   if (arg === null) return `Unicycle: ${method}`;
 
   switch (method) {
@@ -266,6 +269,22 @@ function describe(
   }
 
   return null;
+}
+
+// SNS governance blanks `ExecuteGenericNervousSystemFunction.payload` in every
+// `list_proposals` response — unconditionally, not above a size threshold — so
+// a proposal paged in from that call describes itself as `Unicycle: <method>`.
+// Only `get_proposal` carries the real bytes. This reports the proposals worth
+// that extra query: everything else already describes itself from what
+// `list_proposals` returned.
+export function needsPayload(p: SnsGovernanceDid.ProposalData, ctx: UnicycleContext): boolean {
+  const action = p.proposal[0]?.action[0];
+  if (!action || !('ExecuteGenericNervousSystemFunction' in action)) return false;
+  const { function_id, payload } = action.ExecuteGenericNervousSystemFunction;
+  if (payload.length > 0) return false;
+  const method = ctx.functionMethods.get(function_id);
+  // An unknown id renders as `Unicycle function #N`, which needs no payload.
+  return method !== undefined && !(method in FIXED_DESCRIPTIONS);
 }
 
 export function classifyProposal(

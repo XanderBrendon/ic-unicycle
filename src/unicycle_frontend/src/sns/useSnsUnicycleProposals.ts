@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
-import { SnsGovernanceCanister } from '@icp-sdk/canisters/sns';
+import { SnsGovernanceCanister, type SnsGovernanceDid } from '@icp-sdk/canisters/sns';
 import { safeGetCanisterEnv } from '@icp-sdk/core/agent/canister-env';
 import { buildAgent } from '../wallet/agent';
 import { createUnicycleBackendActor } from '../auth/actor';
 import { principalToSubaccount } from '../wallet/depositAccount';
-import { classifyProposal, type UnicycleContext, type UnicycleProposal } from './unicycleProposals';
+import { classifyProposal, needsPayload, type UnicycleContext, type UnicycleProposal } from './unicycleProposals';
 
 const PAGE_SIZE = 100;
-const TARGET_MATCHES = 20;
+const TARGET_MATCHES = 10;
 const MAX_PAGES_PER_LOAD = 2;
 
 export interface SnsUnicycleProposals {
@@ -22,39 +22,79 @@ export interface SnsUnicycleProposals {
   loadMore: () => void;
 }
 
+// `list_proposals` hands back every generic-function payload blanked to zero
+// bytes, so the rows that describe themselves from their arguments arrive as
+// `Unicycle: <method>`. Re-read just those through `get_proposal`, which
+// carries the real bytes, and describe them again from the full record. Bounded
+// by TARGET_MATCHES and skipped entirely for the rows that never needed a
+// payload, so a load costs at most a handful of extra queries.
+async function withPayloads(
+  gov: SnsGovernanceCanister,
+  ctx: UnicycleContext,
+  matched: { raw: SnsGovernanceDid.ProposalData; match: UnicycleProposal }[],
+): Promise<UnicycleProposal[]> {
+  return Promise.all(
+    matched.map(async ({ raw, match }) => {
+      if (!needsPayload(raw, ctx)) return match;
+      try {
+        const full = await gov.getProposal({ proposalId: { id: match.id }, certified: false });
+        // Governance substitutes a human-readable redaction notice for a large
+        // payload rather than returning the bytes. That fails to decode, and
+        // the row keeps the `Unicycle: <method>` description it already had.
+        return classifyProposal(full, ctx) ?? match;
+      } catch {
+        return match; // one unreadable proposal degrades its row, not the page
+      }
+    }),
+  );
+}
+
 // Governance exposes no server-side "Unicycle-relevant" filter, so we page
 // `list_proposals` newest-first and classify client-side. Each load stops at
 // TARGET_MATCHES matches or MAX_PAGES_PER_LOAD pages, whichever comes first —
 // draining the whole history on every visit would mean an unbounded number of
 // sequential queries for a busy SNS. `loadMore` resumes from the cursor.
 async function collect(gov: SnsGovernanceCanister, ctx: UnicycleContext, before: bigint | null) {
-  const found: UnicycleProposal[] = [];
+  const matched: { raw: SnsGovernanceDid.ProposalData; match: UnicycleProposal }[] = [];
   let cursor = before;
   let pages = 0;
   let exhausted = false;
 
-  while (pages < MAX_PAGES_PER_LOAD && found.length < TARGET_MATCHES) {
+  while (pages < MAX_PAGES_PER_LOAD && matched.length < TARGET_MATCHES) {
     const res = await gov.listProposals({
       limit: PAGE_SIZE,
       beforeProposal: cursor === null ? undefined : { id: cursor },
       certified: false,
     });
     pages += 1;
-    const last = res.proposals[res.proposals.length - 1]?.id[0]?.id;
+
+    // The cursor advances one proposal at a time so a page can be abandoned
+    // part-way through once TARGET_MATCHES is reached — a dense page would
+    // otherwise hand back its whole yield at once, and the rest of it would be
+    // skipped if the cursor had already jumped to the end.
+    let consumed = 0;
     for (const p of res.proposals) {
+      const id = p.id[0]?.id;
+      // No id leaves the cursor with nowhere to advance to, so stop rather
+      // than re-walk this page forever.
+      if (id === undefined) {
+        exhausted = true;
+        break;
+      }
+      consumed += 1;
+      cursor = id;
       const match = classifyProposal(p, ctx);
-      if (match) found.push(match);
+      if (match) matched.push({ raw: p, match });
+      if (matched.length >= TARGET_MATCHES) break;
     }
-    // A short page, an empty page, or one whose last entry has no id (which
-    // would leave the cursor stuck) all mean there is nothing more to walk.
-    if (res.proposals.length < PAGE_SIZE || last === undefined) {
-      exhausted = true;
-      break;
-    }
-    cursor = last;
+
+    // Only a page walked to its end, and short, proves there is nothing left
+    // behind the cursor. A page we stopped part-way through always has more.
+    if (!exhausted && consumed === res.proposals.length && res.proposals.length < PAGE_SIZE) exhausted = true;
+    if (exhausted) break;
   }
 
-  return { found, cursor, exhausted };
+  return { found: await withPayloads(gov, ctx, matched), cursor, exhausted };
 }
 
 export function useSnsUnicycleProposals(
