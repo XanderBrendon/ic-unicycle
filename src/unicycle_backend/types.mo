@@ -485,6 +485,18 @@ module {
     action : SnsDrainAlertAction;
   };
 
+  // One runtime-tunable constant as reported by `adminListTunables` (MIG-3).
+  // `value` is the effective value: the stored override when `overridden`, else
+  // the compiled `defaultValue`. Bounds are inclusive.
+  public type TunableInfo = {
+    key : Text;
+    value : Nat;
+    defaultValue : Nat;
+    min : Nat;
+    max : Nat;
+    overridden : Bool;
+  };
+
   public type AdminError = { #anonymous; #notAdmin };
 
   public type AdminRemoveCanisterError = {

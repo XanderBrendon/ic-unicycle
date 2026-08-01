@@ -73,7 +73,9 @@ type Unicycle =
    adminRemoveCanister: (owner: principal, canisterId: principal) -> (Result_25);
    adminSeedDrainFixture: (owner: principal, canisterId: principal, points:
     vec DrainSeedPoint) -> (Result_3);
+   adminListTunables: () -> (Result_26) query;
    adminSetPendingHarvestIcp: (amount: nat) -> (Result_3);
+   adminSetTunable: (key: text, value: opt nat) -> (Result_27);
    adminSnsRunDepositCheck: (governance: principal) -> (Result_13);
    adminSnsRunDrainAlertCheck: (governance: principal) -> (Result_12);
    adminSnsDeregister: (governance: principal) -> (Result_DeregisterReport);
@@ -434,6 +436,16 @@ type Result_3 =
    err: AdminError;
    ok;
  };
+type Result_27 =
+ variant {
+   err: text;
+   ok;
+ };
+type Result_26 =
+ variant {
+   err: AdminError;
+   ok: vec TunableInfo;
+ };
 type Result_25 =
  variant {
    err: AdminRemoveCanisterError;
@@ -755,6 +767,15 @@ type AdminLoyaltyInfo =
                           nat;
                         };
    totalSharesTcycles: nat;
+ };
+type TunableInfo =
+ record {
+   defaultValue: nat;
+   key: text;
+   max: nat;
+   min: nat;
+   overridden: bool;
+   value: nat;
  };
 type AdminError =
  variant {

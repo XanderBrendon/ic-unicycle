@@ -2,6 +2,7 @@ import Principal "mo:core/Principal";
 import Blob "mo:core/Blob";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
+import Text "mo:core/Text";
 import Nat8 "mo:core/Nat8";
 import Nat64 "mo:core/Nat64";
 import Result "mo:core/Result";
@@ -36,10 +37,16 @@ import Report "lib/Report";
 import NumFmt "lib/NumFmt";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
+import Tunables "lib/Tunables";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
+import Migration "migration";
 
+// One-shot: drops the 19 stale stable module-level constants now that they are
+// `transient`. Remove this and `migration.mo` in the first commit after the
+// upgrade lands.
+(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -64,6 +71,7 @@ persistent actor class Unicycle(
   public type RemoveTrackedSnsError = Types.RemoveTrackedSnsError;
   public type AdminRemoveCanisterError = Types.AdminRemoveCanisterError;
   public type TrackedCanister = Types.TrackedCanister;
+  public type TunableInfo = Types.TunableInfo;
   public type CycleReading = Types.CycleReading;
   public type SwapAttempt = Types.SwapAttempt;
   public type TopUp = Types.TopUp;
@@ -204,6 +212,28 @@ persistent actor class Unicycle(
     };
   } = actor (cmcCanisterId.toText());
 
+  // ---------------------------------------------------------------------------
+  // Runtime-tunable constants (MIG-3). Every module-level constant below is
+  // `transient`: as plain `let`s in a `persistent actor` they were persisted as
+  // stable variables, so on upgrade the stored value was restored and the source
+  // initializer SKIPPED — editing a constant did nothing to the live canister.
+  // (Same defect as the old stable `snsFunctionSpecs`; see migration.mo.)
+  //
+  // Operational constants are declared as a `Tunables.Spec` beside the code they
+  // govern and read via `tunable(SPEC)`, which prefers a stored override. The
+  // override map is Text-keyed on purpose: `var settings : AdminSettings` is an
+  // invariant position where a new field traps (M0170) and costs a migration
+  // every time, whereas a new key here is data and costs nothing.
+  //
+  // Protocol constants (LP ticks/fee, the CMC memo) are `transient` but get NO
+  // override — a wrong value there breaks top-ups or the LP position outright.
+  // ---------------------------------------------------------------------------
+  let tunableOverrides : Map.Map<Text, Nat> = Map.empty();
+
+  func tunable(s : Tunables.Spec) : Nat {
+    switch (tunableOverrides.get(s.key)) { case (?v) v; case null s.defaultValue };
+  };
+
   // ICPSwap V3 SwapPool reference — narrow structural subset of the upstream
   // candid surface vendored under `src/unicycle_backend/icpswap_pool.did`.
   // Only the five methods the US12 group-swap saga uses are typed here. The
@@ -211,9 +241,11 @@ persistent actor class Unicycle(
   // the stub canister in `vendor/icpswap/`.
   // Full-range ticks for the canonical 0.3% fee tier. Confirm against the
   // mainnet pool's `metadata()` once at deploy time and lock as constants.
-  let LP_FULL_TICK_LOWER : Int = -887220;
-  let LP_FULL_TICK_UPPER : Int = 887220;
-  let LP_POOL_FEE : Nat = 3_000;     // 0.3% fee tier — confirm against metadata()
+  // Protocol constants — fixed by the AMM's tick math and the pool's fee tier,
+  // so `transient` (corrigible by redeploy) but never runtime-settable.
+  transient let LP_FULL_TICK_LOWER : Int = -887220;
+  transient let LP_FULL_TICK_UPPER : Int = 887220;
+  transient let LP_POOL_FEE : Nat = 3_000;     // 0.3% fee tier — confirm against metadata()
   func icpSwapPool() : actor {
     metadata : shared query () -> async {
       #ok : IcpSwapPoolMetadata;
@@ -323,13 +355,24 @@ persistent actor class Unicycle(
   // post-install refresh completes (typically within a few seconds).
   // ---------------------------------------------------------------------------
 
-  let MAX_TOP_CONTRIBUTORS : Nat = 10;
+  transient let MAX_TOP_CONTRIBUTORS : Tunables.Spec =
+    { key = "maxTopContributors"; defaultValue = 10; min = 1; max = 100 };
 
-  // Cooldown between automatic deposit top-up proposals for one SNS (US24).
-  // Default 4 days ≥ a typical SNS voting period, so the recurring check does not
-  // re-file a transfer while the previous one is still in voting. Cleared by
-  // `snsSetDepositConfig` so changed settings are acted on immediately.
-  let DEPOSIT_PROPOSAL_COOLDOWN_NS : Nat = 4 * Durations.DAY_NS;
+  // Cooldown between automatic deposit top-up proposals for one SNS (US24), so
+  // the recurring check does not re-file a transfer while the previous one is
+  // still in voting. Cleared by `snsSetDepositConfig` so changed settings are
+  // acted on immediately.
+  //
+  // 5.5 days. Was 4 days on the claim that this was "≥ a typical SNS voting
+  // period" — it is not: `TransferSnsTreasuryFunds` is a CRITICAL proposal with a
+  // longer initial voting period (5 days vs 4), so the cooldown lapsed under a
+  // still-open transfer and the next check filed a DUPLICATE proposal. 5.5 days
+  // clears an uncontested critical proposal. It does NOT cover the tail case:
+  // wait-for-quiet extends the deadline on late vote swings, so a contested
+  // transfer can outlive this and still draw a duplicate. Closing that needs a
+  // governance `get_proposal` check on the submitted id, not a longer constant.
+  transient let DEPOSIT_PROPOSAL_COOLDOWN_NS : Tunables.Spec =
+    { key = "depositProposalCooldownNs"; defaultValue = 11 * Durations.DAY_NS / 2; min = Durations.DAY_NS; max = 30 * Durations.DAY_NS };
 
   var settings : AdminSettings = {
     cycleCheckIntervalSeconds = 14_400; // 4 hours
@@ -417,7 +460,8 @@ persistent actor class Unicycle(
 
   // Hard per-user cap on tracked SNSes: bounds the number of outbound
   // list_sns_canisters calls one upsert fallback can trigger.
-  let MAX_TRACKED_SNS_PER_USER : Nat = 16;
+  transient let MAX_TRACKED_SNS_PER_USER : Tunables.Spec =
+    { key = "maxTrackedSnsPerUser"; defaultValue = 16; min = 1; max = 1_000 };
 
   // Tracked-canister registry: per-caller map of canister id → config. Persists
   // across upgrades via the persistent actor default.
@@ -456,16 +500,19 @@ persistent actor class Unicycle(
   // ~60 calls/min sustained with a ~2-minute burst — far above any legitimate
   // single user, far below a drain. Transient: a cold/just-upgraded canister
   // starts with a full bucket. See `lib/TokenBucket`.
-  let GLOBAL_BUCKET_CAPACITY : Nat = 120;
-  let GLOBAL_BUCKET_REFILL_INTERVAL_NS : Nat = 1_000_000_000; // 1 token/sec → ~60/min
-  transient var globalBucket : TokenBucket.Bucket = TokenBucket.init(GLOBAL_BUCKET_CAPACITY);
+  transient let GLOBAL_BUCKET_CAPACITY : Tunables.Spec =
+    { key = "globalBucketCapacity"; defaultValue = 120; min = 10; max = 10_000 };
+  transient let GLOBAL_BUCKET_REFILL_INTERVAL_NS : Tunables.Spec =
+    { key = "globalBucketRefillIntervalNs"; defaultValue = 1_000_000_000; min = 100_000_000; max = 60_000_000_000 }; // 1 token/sec → ~60/min
+  transient var globalBucket : TokenBucket.Bucket = TokenBucket.init(tunable(GLOBAL_BUCKET_CAPACITY));
 
   // Throttle the live SNS-Wasm registry refresh triggered on a `resolveSnsRoot`
   // cache miss (DOS-3/AUTH-6): repeated misses from unrecognized/rotating
   // callers must not each force a paid `list_deployed_snses`. A genuinely new
   // SNS resolves on the next call after the window. Transient — a fresh 0 just
   // permits the first refresh.
-  let SNS_REFRESH_MIN_INTERVAL_NS : Nat = 60_000_000_000; // 60s
+  transient let SNS_REFRESH_MIN_INTERVAL_NS : Tunables.Spec =
+    { key = "snsRefreshMinIntervalNs"; defaultValue = 60_000_000_000; min = 1_000_000_000; max = 3_600_000_000_000 }; // 60s
   transient var lastSnsRefreshNs : Nat = 0;
 
   // Single-saga in-flight flag for the US12 group-swap path. Concurrent
@@ -475,10 +522,20 @@ persistent actor class Unicycle(
   transient var groupSwapInFlight : Bool = false;
 
   // Live ledger fees, lifted to constants so the saga's per-participant
-  // deficit / staging math doesn't pay a round-trip per quote loop. Bump if
-  // either ledger changes its `icrc1_fee`.
-  let icpLedgerFee : Nat = 10_000;
-  let tcyclesLedgerFee : Nat = 100_000_000;
+  // deficit / staging math doesn't pay a round-trip per quote loop. If either
+  // ledger changes its `icrc1_fee`, set the override — a source bump alone did
+  // NOT reach the deployed canister while these were persisted stable `let`s,
+  // which is exactly what this comment used to promise. `min = 0` is deliberate:
+  // a zero-fee ledger is legal.
+  transient let ICP_LEDGER_FEE : Tunables.Spec =
+    { key = "icpLedgerFee"; defaultValue = 10_000; min = 0; max = 1_000_000 };
+  transient let TCYCLES_LEDGER_FEE : Tunables.Spec =
+    { key = "tcyclesLedgerFee"; defaultValue = 100_000_000; min = 0; max = 10_000_000_000 };
+
+  // Accessors rather than `tunable(SPEC)` at each site: these two are read from
+  // ~60 places across the swap/saga math, and `name()` keeps that code legible.
+  func icpLedgerFee() : Nat = tunable(ICP_LEDGER_FEE);
+  func tcyclesLedgerFee() : Nat = tunable(TCYCLES_LEDGER_FEE);
 
   // "TPUP" — MEMO_TOP_UP_CANISTER; the NNS CMC only mints for an ICP transfer
   // carrying this memo (US30). The canonical NNS constant is the u64 0x50555054.
@@ -488,12 +545,13 @@ persistent actor class Unicycle(
   // So the bytes below are 0x50555054 little-endian, zero-padded to 8 bytes.
   // (The local `cmc` stub ignores the memo, so a wrong value still passes local
   // verification — this encoding was confirmed against the mainnet CMC source.)
-  let MEMO_TOP_UP_CANISTER : Blob = Blob.fromArray([0x54 : Nat8, 0x50, 0x55, 0x50, 0x00, 0x00, 0x00, 0x00]);
+  // Protocol constant — the CMC mints only for this exact memo. Never settable.
+  transient let MEMO_TOP_UP_CANISTER : Blob = Blob.fromArray([0x54 : Nat8, 0x50, 0x55, 0x50, 0x00, 0x00, 0x00, 0x00]);
 
   // 10% over-purchase applied to the aggregated swap *target* (the ratio lives
   // in `SwapMath.OVER_PURCHASE_NUM`/`_DEN`), which sizes `quotedInput` /
   // `totalIcpIn` in `runGroupSwap`. The matching swap floor (`amountOutMinimum`
-  // in step 4) is the bare `survivingDemand + n · tcyclesLedgerFee` — the 10%
+  // in step 4) is the bare `survivingDemand + n · tcyclesLedgerFee()` — the 10%
   // gap is the slippage cushion. On a slip-free swap the excess TCYCLES land in
   // each user's deposit subaccount and are consumed by the next trigger's
   // pass-1 direct withdraw, paying for that retry's cycles-ledger fee.
@@ -565,17 +623,20 @@ persistent actor class Unicycle(
   var cumulativeSurplusRewardsTcycles : Nat = 0; // surplus shared to users over all harvests
   var cumulativeRebatesGrantedTcycles : Nat = 0; // rebate credit ever claimed
 
-  let MAX_HARVEST_EVENTS : Nat = 30;
+  transient let MAX_HARVEST_EVENTS : Tunables.Spec =
+    { key = "maxHarvestEvents"; defaultValue = 30; min = 5; max = 10_000 };
   var harvestHistory : [HarvestEvent] = [];
   transient var harvestInFlight : Bool = false;
 
   // Minimum tracked harvest ICP (e8s) worth depositing into the pool — below
   // this the ICP leg is skipped and the counter accumulates (a deposit costs
-  // 2 x icpLedgerFee; don't spend fees on dust).
-  let LP_MIN_ICP_DEPOSIT : Nat = 1_000_000; // 0.01 ICP
+  // 2 x icpLedgerFee(); don't spend fees on dust).
+  transient let LP_MIN_ICP_DEPOSIT : Tunables.Spec =
+    { key = "lpMinIcpDeposit"; defaultValue = 1_000_000; min = 10_000; max = 10_000_000_000 }; // 0.01 ICP
 
   // Newest-first capped audit log of drain attempts (success + failure).
-  let MAX_LP_EVENTS : Nat = 30;
+  transient let MAX_LP_EVENTS : Tunables.Spec =
+    { key = "maxLpEvents"; defaultValue = 30; min = 5; max = 10_000 };
   var lpHistory : [LpEvent] = [];
 
   // Saga-level guard. Concurrent firings during a running drain return silently;
@@ -609,16 +670,43 @@ persistent actor class Unicycle(
   // constants (not AdminSettings) following the MAX_LP_EVENTS precedent.
   // ---------------------------------------------------------------------------
 
-  let MAX_BALANCE_EVENTS_PER_OWNER : Nat = 500;
-  let MAX_LOG_ENTRIES : Nat = 1_000;
-  let MAX_METRICS_SNAPSHOTS : Nat = 4096; // > 1 year of snapshots at the default check interval
+  transient let MAX_BALANCE_EVENTS_PER_OWNER : Tunables.Spec =
+    { key = "maxBalanceEventsPerOwner"; defaultValue = 500; min = 10; max = 10_000 };
+  transient let MAX_LOG_ENTRIES : Tunables.Spec =
+    { key = "maxLogEntries"; defaultValue = 1_000; min = 100; max = 100_000 };
+  transient let MAX_METRICS_SNAPSHOTS : Tunables.Spec =
+    { key = "maxMetricsSnapshots"; defaultValue = 4_096; min = 100; max = 100_000 }; // > 1 year of snapshots at the default check interval
 
   // Extra balance re-reads `awaitTcyclesSettled` will spend waiting for a saga
   // delivery to clear the pool's withdraw queue. Each is a ledger round-trip,
   // so this is a few seconds of slack per participant, and the retry loop's own
   // work between participants adds more. Exhausting it is not an error — the
   // top-up records as `#deferred` and the next sweep finishes it.
-  let SETTLE_POLL_ATTEMPTS : Nat = 5;
+  transient let SETTLE_POLL_ATTEMPTS : Tunables.Spec =
+    { key = "settlePollAttempts"; defaultValue = 5; min = 1; max = 50 };
+
+  // Every runtime-settable tunable, for `adminListTunables` / `adminSetTunable`.
+  // `transient` like `snsFunctionSpecs`: a compile-time registry that must
+  // re-evaluate from source on every upgrade. Declared here because it forward-
+  // references nothing — all specs above are already in scope. Adding an entry
+  // needs no migration; the override map is keyed by `key : Text`.
+  transient let TUNABLE_SPECS : [Tunables.Spec] = [
+    MAX_TOP_CONTRIBUTORS,
+    DEPOSIT_PROPOSAL_COOLDOWN_NS,
+    MAX_TRACKED_SNS_PER_USER,
+    GLOBAL_BUCKET_CAPACITY,
+    GLOBAL_BUCKET_REFILL_INTERVAL_NS,
+    SNS_REFRESH_MIN_INTERVAL_NS,
+    ICP_LEDGER_FEE,
+    TCYCLES_LEDGER_FEE,
+    MAX_HARVEST_EVENTS,
+    LP_MIN_ICP_DEPOSIT,
+    MAX_LP_EVENTS,
+    MAX_BALANCE_EVENTS_PER_OWNER,
+    MAX_LOG_ENTRIES,
+    MAX_METRICS_SNAPSHOTS,
+    SETTLE_POLL_ATTEMPTS,
+  ];
 
   // owner → newest-first balance events (owner = person or SNS root).
   let balanceEvents : Map.Map<Principal, [BalanceEvent]> = Map.empty();
@@ -644,13 +732,13 @@ persistent actor class Unicycle(
       case null { [] };
     };
     let event : BalanceEvent = { at = Int.abs(Time.now()); token; amount; direction; kind };
-    balanceEvents.add(owner, History.prependCapped(prior, event, MAX_BALANCE_EVENTS_PER_OWNER));
+    balanceEvents.add(owner, History.prependCapped(prior, event, tunable(MAX_BALANCE_EVENTS_PER_OWNER)));
   };
 
   func log(level : Types.LogLevel, category : Types.LogCategory, message : Text, caller : ?Principal) {
     logSeq += 1;
     let entry : LogEntry = { seq = logSeq; at = Int.abs(Time.now()); level; category; message; caller };
-    logEntries := History.prependCapped(logEntries, entry, MAX_LOG_ENTRIES);
+    logEntries := History.prependCapped(logEntries, entry, tunable(MAX_LOG_ENTRIES));
   };
 
   func recordReading(
@@ -716,12 +804,12 @@ persistent actor class Unicycle(
           case (?bal) { recordReading(canisterId, #ok bal) };
           case null {};
         };
-        recordBalanceEvent(owner, #TCYCLES, amount + tcyclesLedgerFee, #debit, #topUp { canisterId });
+        recordBalanceEvent(owner, #TCYCLES, amount + tcyclesLedgerFee(), #debit, #topUp { canisterId });
         // Fee charge moved tokens only when no transfer error and a net fee was
         // due; a fully-rebated charge moves nothing but still records the
         // rebate usage (amount 0, rebateApplied > 0).
         if (feeError == null and (serviceFee > 0 or rebateApplied > 0)) {
-          let feeDelta = if (serviceFee > 0) serviceFee + tcyclesLedgerFee else 0;
+          let feeDelta = if (serviceFee > 0) serviceFee + tcyclesLedgerFee() else 0;
           recordBalanceEvent(owner, #TCYCLES, feeDelta, #debit, #feeCharge { canisterId; rebateApplied });
         };
       };
@@ -754,8 +842,8 @@ persistent actor class Unicycle(
         };
         if (consumed) {
           let feeOverhead = switch (s.source) {
-            case (#swap) { 3 * icpLedgerFee };
-            case (#mint) { icpLedgerFee };
+            case (#swap) { 3 * icpLedgerFee() };
+            case (#mint) { icpLedgerFee() };
           };
           let fundingKind : Types.BalanceEventKind = switch (s.source) {
             case (#swap) { #swapFunding { canisterId } };
@@ -891,7 +979,7 @@ persistent actor class Unicycle(
         from_subaccount = ?Subaccount.ofPrincipal(owner);
         to = { owner = Principal.fromActor(self); subaccount = toSubaccount };
         amount = fee;
-        fee = ?tcyclesLedgerFee;
+        fee = ?tcyclesLedgerFee();
         memo = null;
         created_at_time = null;
       });
@@ -1027,7 +1115,7 @@ persistent actor class Unicycle(
   func awaitTcyclesSettled(owner : Principal, needed : Nat) : async Nat {
     var balance = await tcyclesBalanceOf(owner);
     var polls : Nat = 0;
-    while (balance < needed and polls < SETTLE_POLL_ATTEMPTS) {
+    while (balance < needed and polls < tunable(SETTLE_POLL_ATTEMPTS)) {
       polls += 1;
       balance := await tcyclesBalanceOf(owner);
     };
@@ -1091,7 +1179,7 @@ persistent actor class Unicycle(
     // swap over a fee their accrued credit already covers, so a rebate made the
     // saga — and its withdraw-queue race — fire when a direct top-up would have
     // worked.
-    let needed = SwapMath.directTopUpNeeded(amount, serviceFee, tcyclesLedgerFee);
+    let needed = SwapMath.directTopUpNeeded(amount, serviceFee, tcyclesLedgerFee());
     let balance = await tcyclesBalanceOf(owner);
     if (balance < needed) { return #insufficientFunds { balance } };
 
@@ -1214,7 +1302,7 @@ persistent actor class Unicycle(
   // saga first icrc1_transfers funds from the user's ICP subaccount to the
   // backend's default account, then approves + depositFrom's `share` to
   // the pool. Total ICP debited from the user subaccount =
-  // `share + 3 * icpLedgerFee` (one fee on the staging transfer, one on the
+  // `share + 3 * icpLedgerFee()` (one fee on the staging transfer, one on the
   // approve, one on the pool's icrc2_transfer_from). Returns the amount
   // actually credited inside the pool on success.
   func prepareAndDepositIcp(owner : Principal, share : Nat) : async {
@@ -1223,13 +1311,13 @@ persistent actor class Unicycle(
   } {
     let icpLedger : ICRC1.Self = actor (Tokens.ledgerCanisterId(#ICP).toText());
     let icpLedger2 : ICRC2.Self = actor (Tokens.ledgerCanisterId(#ICP).toText());
-    let stagingAmount : Nat = share + 2 * icpLedgerFee;
+    let stagingAmount : Nat = share + 2 * icpLedgerFee();
     let stageOutcome = try {
       let r = await icpLedger.icrc1_transfer({
         from_subaccount = ?Subaccount.ofPrincipal(owner);
         to = { owner = Principal.fromActor(self); subaccount = null };
         amount = stagingAmount;
-        fee = ?icpLedgerFee;
+        fee = ?icpLedgerFee();
         memo = null;
         created_at_time = null;
       });
@@ -1248,10 +1336,10 @@ persistent actor class Unicycle(
       let r = await icpLedger2.icrc2_approve({
         from_subaccount = null;
         spender = { owner = swapPoolId; subaccount = null };
-        amount = share + icpLedgerFee;
+        amount = share + icpLedgerFee();
         expected_allowance = null;
         expires_at = null;
-        fee = ?icpLedgerFee;
+        fee = ?icpLedgerFee();
         memo = null;
         created_at_time = null;
       });
@@ -1270,7 +1358,7 @@ persistent actor class Unicycle(
       await icpSwapPool().depositFrom({
         token = Tokens.ledgerCanisterId(#ICP).toText();
         amount = share;
-        fee = icpLedgerFee;
+        fee = icpLedgerFee();
       });
     } catch (e) {
       return #err("swap pool unreachable (depositFrom): " # e.message());
@@ -1291,7 +1379,7 @@ persistent actor class Unicycle(
     try {
       let r = await icpSwapPool().withdrawToSubaccount({
         token = Tokens.ledgerCanisterId(#ICP).toText();
-        fee = icpLedgerFee;
+        fee = icpLedgerFee();
         amount;
         subaccount = Subaccount.ofPrincipal(owner);
       });
@@ -1315,14 +1403,14 @@ persistent actor class Unicycle(
     label quoteLoop loop {
       let groupDemand = SwapMath.sumDeficits(survivors);
       if (groupDemand == 0) { quotedInputIcp := 0; break quoteLoop };
-      // `targetOut` adds a flat `tcyclesLedgerFee` per surviving participant on
+      // `targetOut` adds a flat `tcyclesLedgerFee()` per surviving participant on
       // top of the 10% buffer. Reason: each participant's `pool.withdrawToSubaccount`
-      // deducts `tcyclesLedgerFee` from `share` before crediting the user's
-      // subaccount, so the landed amount is `share - tcyclesLedgerFee`. Without
-      // the per-participant correction, a small deficit (≲ 10 × tcyclesLedgerFee)
+      // deducts `tcyclesLedgerFee()` from `share` before crediting the user's
+      // subaccount, so the landed amount is `share - tcyclesLedgerFee()`. Without
+      // the per-participant correction, a small deficit (≲ 10 × tcyclesLedgerFee())
       // leaves the post-withdraw TCYCLES balance below the cycles-ledger retry
       // amount + fee, even after a successful swap.
-      let targetOut = SwapMath.overPurchaseTarget(groupDemand, survivors.size(), tcyclesLedgerFee);
+      let targetOut = SwapMath.overPurchaseTarget(groupDemand, survivors.size(), tcyclesLedgerFee());
       let quotedInput = switch (await quoteGroupSwap(targetOut)) {
         case (#err msg) {
           // Whole-group quote failure: every survivor gets a quote-failed entry.
@@ -1356,7 +1444,7 @@ persistent actor class Unicycle(
       let icpPot = Map.empty<Principal, Nat>();
       for (d in survivors.vals()) {
         let share = SwapMath.proportionalShare(quotedInput, d.deficit, groupDemand);
-        let need = share + 3 * icpLedgerFee;
+        let need = share + 3 * icpLedgerFee();
         let pot = switch (icpPot.get(d.owner)) {
           case (?p) p;
           case null { await icpBalanceOf(d.owner) };
@@ -1424,7 +1512,7 @@ persistent actor class Unicycle(
     // ---- Step 4: single pool.swap call ----
     // amountIn = sum of actual depositedSurvivors' contributions. The floor
     // (`amountOutMinimum`) is the bare aggregate: enough TCYCLES so that
-    // after each `withdrawToSubaccount` debits its `tcyclesLedgerFee`, the
+    // after each `withdrawToSubaccount` debits its `tcyclesLedgerFee()`, the
     // credited totals still cover `survivingDemand`. It is intentionally
     // below the over-purchase target that sized `totalIcpIn` (step 2's
     // `quotedInput` aimed for 1.1 × demand + n × fee); the 10% gap is the
@@ -1439,7 +1527,7 @@ persistent actor class Unicycle(
       totalIcpIn += s.deposited;
       survivingDemand += s.demand.deficit;
     };
-    let amountOutMinimum = survivingDemand + deposited.size() * tcyclesLedgerFee;
+    let amountOutMinimum = survivingDemand + deposited.size() * tcyclesLedgerFee();
     let swapOutcome = try {
       await icpSwapPool().swap({
         amountIn = totalIcpIn.toText();
@@ -1508,19 +1596,19 @@ persistent actor class Unicycle(
       let outcome = try {
         let r = await icpSwapPool().withdrawToSubaccount({
           token = Tokens.ledgerCanisterId(#TCYCLES).toText();
-          fee = tcyclesLedgerFee;
+          fee = tcyclesLedgerFee();
           amount = share;
           subaccount = Subaccount.ofPrincipal(s.demand.owner);
         });
         switch (r) {
           case (#ok _) {
             // The pool's `withdrawToSubaccount` debits `share` from the pool
-            // balance but credits `share - tcyclesLedgerFee` to the user's
+            // balance but credits `share - tcyclesLedgerFee()` to the user's
             // subaccount (the ledger fee comes out of the transfer). Record
             // the actual landed amount so the UI's "ICP → T" line matches
             // what shows up in the user's deposit balance.
-            let landed : Nat = if (share > tcyclesLedgerFee) {
-              share - tcyclesLedgerFee : Nat;
+            let landed : Nat = if (share > tcyclesLedgerFee()) {
+              share - tcyclesLedgerFee() : Nat;
             } else { 0 };
             {
               icpContribution = s.deposited;
@@ -1597,13 +1685,13 @@ persistent actor class Unicycle(
     let icpNeeded = SwapMath.mintIcpNeeded(target, xpe);
     // 3. Affordability — same gate shape as the swap path.
     let balance = await icpBalanceOf(d.owner);
-    if (balance < icpNeeded + icpLedgerFee) {
+    if (balance < icpNeeded + icpLedgerFee()) {
       return {
         icpContribution = 0;
         tcyclesDelivered = 0;
         outcome = #err(
           "insufficient ICP for mint: needed "
-          # (icpNeeded + icpLedgerFee).toText()
+          # (icpNeeded + icpLedgerFee()).toText()
           # ", had "
           # balance.toText()
         );
@@ -1618,7 +1706,7 @@ persistent actor class Unicycle(
           subaccount = ?Subaccount.ofPrincipal(Principal.fromActor(self));
         };
         amount = icpNeeded;
-        fee = ?icpLedgerFee;
+        fee = ?icpLedgerFee();
         memo = ?MEMO_TOP_UP_CANISTER;
         created_at_time = null;
       });
@@ -1743,7 +1831,7 @@ persistent actor class Unicycle(
         };
         case (#skipped) { /* silent — guard fired; next reading retries */ };
         case (#insufficientFunds { balance }) {
-          let needed = SwapMath.directTopUpNeeded(amount, gatedFee, tcyclesLedgerFee);  // withdraw fee + fee-transfer fee
+          let needed = SwapMath.directTopUpNeeded(amount, gatedFee, tcyclesLedgerFee());  // withdraw fee + fee-transfer fee
           pendingSwap.add((owner, canisterId, amount, needed, balance));
         };
       };
@@ -1804,7 +1892,7 @@ persistent actor class Unicycle(
     // rate source is reachable, use it; if neither is, every participant records
     // a rate-unavailable `#err` (no saga runs).
     let groupDemand = SwapMath.sumDeficits(demandArr);
-    let target = SwapMath.overPurchaseTarget(groupDemand, demandArr.size(), tcyclesLedgerFee);
+    let target = SwapMath.overPurchaseTarget(groupDemand, demandArr.size(), tcyclesLedgerFee());
     let swapInput = await quoteGroupSwap(target);   // { #ok : Nat; #err : Text }
     let mintRate = await cmcCyclesPerE8s();          // { #ok : Nat; #err : Text }
     let route = SwapMath.chooseRoute(swapInput, mintRate, target);
@@ -1909,7 +1997,7 @@ persistent actor class Unicycle(
           let settleTarget = SwapMath.directTopUpNeeded(
             demand.cycleTopUpAmount,
             netFeeFor(demand.owner, grossFee),
-            tcyclesLedgerFee,
+            tcyclesLedgerFee(),
           );
           let settled = await awaitTcyclesSettled(demand.owner, settleTarget);
           // Short of even the bare withdraw: the delivery is still in flight, so
@@ -1918,7 +2006,7 @@ persistent actor class Unicycle(
           // history — and let the next sweep top up from the settled balance.
           // Between the two bars, the withdraw goes through and only the fee
           // transfer may miss, which is the pre-existing `feeError` outcome.
-          if (settled < demand.cycleTopUpAmount + tcyclesLedgerFee) {
+          if (settled < demand.cycleTopUpAmount + tcyclesLedgerFee()) {
             recordTopUp(
               demand.owner,
               demand.canisterId,
@@ -1926,7 +2014,7 @@ persistent actor class Unicycle(
               #deferred(
                 "bought cycles have not settled into the deposit balance yet (balance: "
                 # settled.toText() # ", needed: "
-                # (demand.cycleTopUpAmount + tcyclesLedgerFee).toText()
+                # (demand.cycleTopUpAmount + tcyclesLedgerFee()).toText()
                 # ") — the next cycle check will complete this top-up"
               ),
               ?{
@@ -2040,7 +2128,7 @@ persistent actor class Unicycle(
   // ---------------------------------------------------------------------------
 
   func recordLpEvent(event : LpEvent) {
-    lpHistory := History.prependCapped(lpHistory, event, MAX_LP_EVENTS);
+    lpHistory := History.prependCapped(lpHistory, event, tunable(MAX_LP_EVENTS));
     switch (event.outcome) {
       case (#ok) { log(#info, #lp, "lp drain: " # event.tcyclesIn.toText() # " tcycles in, " # event.icpOut.toText() # " icp out", null) };
       case (#err msg) { log(#error, #lp, "lp drain failed: " # msg, null) };
@@ -2049,19 +2137,19 @@ persistent actor class Unicycle(
 
   // Step 1: approve + depositFrom the whole fee balance from the backend default
   // account into the pool's unused balance. Two ledger fees (approve + the pool's
-  // transfer_from); credited amount = balance - 2 * tcyclesLedgerFee.
+  // transfer_from); credited amount = balance - 2 * tcyclesLedgerFee().
   func depositFeesToPool(balance : Nat) : async { #ok : Nat; #err : Text } {
-    let depositAmount : Nat = if (balance > 2 * tcyclesLedgerFee) { balance - 2 * tcyclesLedgerFee : Nat } else { 0 };
+    let depositAmount : Nat = if (balance > 2 * tcyclesLedgerFee()) { balance - 2 * tcyclesLedgerFee() : Nat } else { 0 };
     if (depositAmount == 0) return #err("balance below deposit fees");
     let ledger : ICRC2.Self = actor (Tokens.ledgerCanisterId(#TCYCLES).toText());
     let approveResult = try {
       await ledger.icrc2_approve({
         from_subaccount = null;
         spender = { owner = swapPoolId; subaccount = null };
-        amount = depositAmount + tcyclesLedgerFee;
+        amount = depositAmount + tcyclesLedgerFee();
         expected_allowance = null;
         expires_at = null;
-        fee = ?tcyclesLedgerFee;
+        fee = ?tcyclesLedgerFee();
         memo = null;
         created_at_time = null;
       });
@@ -2071,7 +2159,7 @@ persistent actor class Unicycle(
       case (#Ok _)    {};
     };
     try {
-      switch (await icpSwapPool().depositFrom({ token = Tokens.ledgerCanisterId(#TCYCLES).toText(); amount = depositAmount; fee = tcyclesLedgerFee })) {
+      switch (await icpSwapPool().depositFrom({ token = Tokens.ledgerCanisterId(#TCYCLES).toText(); amount = depositAmount; fee = tcyclesLedgerFee() })) {
         case (#err e)       { #err(Errors.pool(e, "depositFrom")) };
         case (#ok credited) { #ok credited };
       };
@@ -2080,19 +2168,19 @@ persistent actor class Unicycle(
 
   // Step 1b: approve + depositFrom `balance` of tracked harvest ICP from the
   // backend default ICP account into the pool's unused balance. Mirrors
-  // depositFeesToPool: two ledger fees; credited = balance - 2 * icpLedgerFee.
+  // depositFeesToPool: two ledger fees; credited = balance - 2 * icpLedgerFee().
   func depositHarvestIcpToPool(balance : Nat) : async { #ok : Nat; #err : Text } {
-    let depositAmount : Nat = if (balance > 2 * icpLedgerFee) { balance - 2 * icpLedgerFee : Nat } else { 0 };
+    let depositAmount : Nat = if (balance > 2 * icpLedgerFee()) { balance - 2 * icpLedgerFee() : Nat } else { 0 };
     if (depositAmount == 0) return #err("balance below deposit fees");
     let ledger : ICRC2.Self = actor (Tokens.ledgerCanisterId(#ICP).toText());
     let approveResult = try {
       await ledger.icrc2_approve({
         from_subaccount = null;
         spender = { owner = swapPoolId; subaccount = null };
-        amount = depositAmount + icpLedgerFee;
+        amount = depositAmount + icpLedgerFee();
         expected_allowance = null;
         expires_at = null;
-        fee = ?icpLedgerFee;
+        fee = ?icpLedgerFee();
         memo = null;
         created_at_time = null;
       });
@@ -2102,7 +2190,7 @@ persistent actor class Unicycle(
       case (#Ok _)    {};
     };
     try {
-      switch (await icpSwapPool().depositFrom({ token = Tokens.ledgerCanisterId(#ICP).toText(); amount = depositAmount; fee = icpLedgerFee })) {
+      switch (await icpSwapPool().depositFrom({ token = Tokens.ledgerCanisterId(#ICP).toText(); amount = depositAmount; fee = icpLedgerFee() })) {
         case (#err e)       { #err(Errors.pool(e, "depositFrom")) };
         case (#ok credited) { #ok credited };
       };
@@ -2194,13 +2282,13 @@ persistent actor class Unicycle(
   // and untracked — same accepted gap as a failed pair step.
   func recoverDrainDeposits(tc : Nat, icp : Nat, now : Nat, msg : Text) : async LpEvent {
     var detail = msg;
-    if (tc > tcyclesLedgerFee) {
+    if (tc > tcyclesLedgerFee()) {
       switch (await withdrawTcyclesToFeePool(tc)) {
         case (#ok _)  {};
         case (#err w) { detail #= "; tc recover failed: " # w };
       };
     };
-    if (icp > icpLedgerFee) {
+    if (icp > icpLedgerFee()) {
       switch (await withdrawIcpFromPool(icp)) {
         case (#ok landed) { pendingHarvestIcp += landed };
         case (#err w)     { detail #= "; icp recover failed: " # w };
@@ -2230,14 +2318,14 @@ persistent actor class Unicycle(
     // approve fee may have been spent; the counter must never overstate the
     // live balance) and continues TCYCLES-only — the next drain retries.
     var creditedIcp : Nat = 0;
-    if (icpAmount >= LP_MIN_ICP_DEPOSIT) {
+    if (icpAmount >= tunable(LP_MIN_ICP_DEPOSIT)) {
       switch (await depositHarvestIcpToPool(icpAmount)) {
         case (#ok n) {
           pendingHarvestIcp := if (pendingHarvestIcp > icpAmount) { pendingHarvestIcp - icpAmount : Nat } else { 0 };
           creditedIcp := n;
         };
         case (#err msg) {
-          pendingHarvestIcp := if (pendingHarvestIcp > icpLedgerFee) { pendingHarvestIcp - icpLedgerFee : Nat } else { 0 };
+          pendingHarvestIcp := if (pendingHarvestIcp > icpLedgerFee()) { pendingHarvestIcp - icpLedgerFee() : Nat } else { 0 };
           log(#error, #lp, "lp drain: icp leg skipped: " # msg, null);
         };
       };
@@ -2253,7 +2341,7 @@ persistent actor class Unicycle(
     var tcInPool = creditedTc;
     var icpInPool = creditedIcp;
     var icpFromSwap : Nat = 0;
-    switch (SwapMath.lpDeltaSwap(creditedTc, creditedIcp, icpValueTc, settings.swapSlippageBps, tcyclesLedgerFee, icpLedgerFee)) {
+    switch (SwapMath.lpDeltaSwap(creditedTc, creditedIcp, icpValueTc, settings.swapSlippageBps, tcyclesLedgerFee(), icpLedgerFee())) {
       case (#none) {};
       case (#tcToIcp amt) {
         switch (await swapTcyclesForIcp(amt)) {
@@ -2320,7 +2408,7 @@ persistent actor class Unicycle(
   // ---------------------------------------------------------------------------
 
   func recordHarvestEvent(event : HarvestEvent) {
-    harvestHistory := History.prependCapped(harvestHistory, event, MAX_HARVEST_EVENTS);
+    harvestHistory := History.prependCapped(harvestHistory, event, tunable(MAX_HARVEST_EVENTS));
     switch (event.outcome) {
       case (#ok) { log(#info, #harvest, "harvest: " # event.claimedTcycles.toText() # " tcycles claimed (" # event.toAdmin.toText() # " to admin, " # event.toSurplus.toText() # " to surplus)", null) };
       case (#err msg) { log(#error, #harvest, "harvest failed: " # msg, null) };
@@ -2378,11 +2466,11 @@ persistent actor class Unicycle(
     try {
       switch (await icpSwapPool().withdrawToSubaccount({
         token = Tokens.ledgerCanisterId(#TCYCLES).toText();
-        fee = tcyclesLedgerFee;
+        fee = tcyclesLedgerFee();
         amount;
         subaccount = Subaccount.DEFAULT;
       })) {
-        case (#ok _)  { #ok(if (amount > tcyclesLedgerFee) { amount - tcyclesLedgerFee : Nat } else { 0 }) };
+        case (#ok _)  { #ok(if (amount > tcyclesLedgerFee()) { amount - tcyclesLedgerFee() : Nat } else { 0 }) };
         case (#err e) { #err(Errors.pool(e, "withdrawToSubaccount")) };
       };
     } catch (e) { #err("pool withdraw unreachable: " # e.message()) };
@@ -2396,11 +2484,11 @@ persistent actor class Unicycle(
     try {
       switch (await icpSwapPool().withdrawToSubaccount({
         token = Tokens.ledgerCanisterId(#ICP).toText();
-        fee = icpLedgerFee;
+        fee = icpLedgerFee();
         amount;
         subaccount = Subaccount.DEFAULT;
       })) {
-        case (#ok _)  { #ok(if (amount > icpLedgerFee) { amount - icpLedgerFee : Nat } else { 0 }) };
+        case (#ok _)  { #ok(if (amount > icpLedgerFee()) { amount - icpLedgerFee() : Nat } else { 0 }) };
         case (#err e) { #err(Errors.pool(e, "withdrawToSubaccount")) };
       };
     } catch (e) { #err("pool withdraw unreachable: " # e.message()) };
@@ -2473,8 +2561,8 @@ persistent actor class Unicycle(
       };
       case (#ok amts) { amts };
     };
-    let netIcp = if (claimed.amount0 > icpLedgerFee) { claimed.amount0 - icpLedgerFee : Nat } else { 0 };
-    let netTc = if (claimed.amount1 > tcyclesLedgerFee) { claimed.amount1 - tcyclesLedgerFee : Nat } else { 0 };
+    let netIcp = if (claimed.amount0 > icpLedgerFee()) { claimed.amount0 - icpLedgerFee() : Nat } else { 0 };
+    let netTc = if (claimed.amount1 > tcyclesLedgerFee()) { claimed.amount1 - tcyclesLedgerFee() : Nat } else { 0 };
     pendingHarvestIcp += netIcp;
 
     // 3. Credit: value the ICP leg at the CMC peg instead of swapping it —
@@ -2611,7 +2699,7 @@ persistent actor class Unicycle(
       accRewardPerShare;
       lpPositionId;
     };
-    metricsSnapshots := History.prependCapped(metricsSnapshots, snapshot, MAX_METRICS_SNAPSHOTS);
+    metricsSnapshots := History.prependCapped(metricsSnapshots, snapshot, tunable(MAX_METRICS_SNAPSHOTS));
   };
 
   // Timer entry point: the sweep plus bookkeeping that must happen once per
@@ -2914,8 +3002,8 @@ persistent actor class Unicycle(
         // `fee = null` → the ledger's default fee is debited from the sending
         // subaccount on top of `amount`.
         let ledgerFee = switch (token) {
-          case (#ICP) { icpLedgerFee };
-          case (#TCYCLES) { tcyclesLedgerFee };
+          case (#ICP) { icpLedgerFee() };
+          case (#TCYCLES) { tcyclesLedgerFee() };
         };
         recordBalanceEvent(recordKey, token, amount + ledgerFee, #debit, #withdraw);
         #ok blockIndex;
@@ -3202,8 +3290,8 @@ persistent actor class Unicycle(
   func consumeGlobalToken() : Bool {
     let (next, granted) = TokenBucket.tryConsume(
       globalBucket,
-      GLOBAL_BUCKET_CAPACITY,
-      GLOBAL_BUCKET_REFILL_INTERVAL_NS,
+      tunable(GLOBAL_BUCKET_CAPACITY),
+      tunable(GLOBAL_BUCKET_REFILL_INTERVAL_NS),
       Int.abs(Time.now()),
     );
     globalBucket := next;
@@ -3304,7 +3392,7 @@ persistent actor class Unicycle(
         // unrecognized/rotating callers triggers at most one `list_deployed_snses`
         // per window. A genuinely new SNS resolves on the next call after it.
         let now = Int.abs(Time.now());
-        if (now >= lastSnsRefreshNs + SNS_REFRESH_MIN_INTERVAL_NS) {
+        if (now >= lastSnsRefreshNs + tunable(SNS_REFRESH_MIN_INTERVAL_NS)) {
           lastSnsRefreshNs := now;
           await refreshSnsRegistry();
         };
@@ -3328,7 +3416,7 @@ persistent actor class Unicycle(
       case (?g) { ?g };
       case null {
         let now = Int.abs(Time.now());
-        if (now >= lastSnsRefreshNs + SNS_REFRESH_MIN_INTERVAL_NS) {
+        if (now >= lastSnsRefreshNs + tunable(SNS_REFRESH_MIN_INTERVAL_NS)) {
           lastSnsRefreshNs := now;
           await refreshSnsRegistry();
         };
@@ -3655,7 +3743,7 @@ persistent actor class Unicycle(
     // uses, so a newly launched SNS resolves on first use.
     if (not isKnownSnsRoot(root)) {
       let now = Int.abs(Time.now());
-      if (now >= lastSnsRefreshNs + SNS_REFRESH_MIN_INTERVAL_NS) {
+      if (now >= lastSnsRefreshNs + tunable(SNS_REFRESH_MIN_INTERVAL_NS)) {
         lastSnsRefreshNs := now;
         await refreshSnsRegistry();
       };
@@ -3671,8 +3759,8 @@ persistent actor class Unicycle(
       };
     };
     if (set.contains(root)) return #err(#alreadyTracked);
-    if (set.size() >= MAX_TRACKED_SNS_PER_USER) {
-      return #err(#limitReached { maxTrackedSns = MAX_TRACKED_SNS_PER_USER });
+    if (set.size() >= tunable(MAX_TRACKED_SNS_PER_USER)) {
+      return #err(#limitReached { maxTrackedSns = tunable(MAX_TRACKED_SNS_PER_USER) });
     };
     set.add(root);
     log(#info, #sns, "addTrackedSns " # root.toText(), ?caller);
@@ -4228,7 +4316,7 @@ persistent actor class Unicycle(
       case (#ICP) { await icpBalanceOf(root) };
       case (#TCYCLES) { await tcyclesBalanceOf(root) };
     };
-    let fee = switch (token) { case (#ICP) { icpLedgerFee }; case (#TCYCLES) { tcyclesLedgerFee } };
+    let fee = switch (token) { case (#ICP) { icpLedgerFee() }; case (#TCYCLES) { tcyclesLedgerFee() } };
     switch (SnsDeregister.drainAmount(balance, fee)) {
       case null { { token; amount = 0; result = #err("no spendable balance") } };
       case (?amount) {
@@ -4418,7 +4506,7 @@ persistent actor class Unicycle(
     };
     if (cfg.minBalanceE8s == 0) return mk(0, #skippedDisabled);
     switch (snsLastDepositProposal.get(root)) {
-      case (?t) { if ((Int.abs(Time.now()) - t : Nat) < DEPOSIT_PROPOSAL_COOLDOWN_NS) return mk(0, #skippedCooldown) };
+      case (?t) { if ((Int.abs(Time.now()) - t : Nat) < tunable(DEPOSIT_PROPOSAL_COOLDOWN_NS)) return mk(0, #skippedCooldown) };
       case null {};
     };
     let bal = await icpBalanceOf(root);
@@ -4727,6 +4815,37 @@ persistent actor class Unicycle(
     #ok();
   };
 
+  // Runtime tunables (MIG-3). Separate from `updateAdminSettings` because these
+  // are compiled constants with an override map, not fields on AdminSettings —
+  // see the tunables block near the top of the actor for why they cannot be.
+  public shared query ({ caller }) func adminListTunables() : async Result.Result<[TunableInfo], AdminError> {
+    if (caller.isAnonymous()) return #err(#anonymous);
+    if (not isAdmin(caller)) return #err(#notAdmin);
+    #ok(TUNABLE_SPECS.map<Tunables.Spec, TunableInfo>(func(s) { Tunables.info(s, tunableOverrides.get(s.key)) }));
+  };
+
+  // `null` clears the override, returning the key to its compiled default.
+  public shared ({ caller }) func adminSetTunable(key : Text, value : ?Nat) : async Result.Result<(), Text> {
+    if (caller.isAnonymous()) return #err("anonymous");
+    if (not isAdmin(caller)) return #err("not admin");
+    switch (value) {
+      case null {
+        if (Tunables.find(TUNABLE_SPECS, key) == null) return #err("unknown tunable: " # key);
+        ignore tunableOverrides.delete(key);
+        log(#info, #admin, "adminSetTunable " # key # " cleared", ?caller);
+      };
+      case (?v) {
+        switch (Tunables.validate(TUNABLE_SPECS, key, v)) {
+          case (#err e) { return #err(e) };
+          case (#ok _) {};
+        };
+        tunableOverrides.add(key, v);
+        log(#info, #admin, "adminSetTunable " # key # " = " # v.toText(), ?caller);
+      };
+    };
+    #ok();
+  };
+
   public shared query ({ caller }) func adminListAllTracked() : async Result.Result<[AdminTrackedRow], AdminError> {
     if (caller.isAnonymous()) return #err(#anonymous);
     if (not isAdmin(caller)) return #err(#notAdmin);
@@ -4905,8 +5024,8 @@ persistent actor class Unicycle(
       Nat.compare(y.1, x.1);
     };
     let sorted = contribList.toArray().sort(bySharesDesc);
-    let topContributors = if (sorted.size() > MAX_TOP_CONTRIBUTORS) {
-      sorted.sliceToArray(0, MAX_TOP_CONTRIBUTORS);
+    let topContributors = if (sorted.size() > tunable(MAX_TOP_CONTRIBUTORS)) {
+      sorted.sliceToArray(0, tunable(MAX_TOP_CONTRIBUTORS));
     } else { sorted };
     #ok({
       accRewardPerShare;
@@ -4986,7 +5105,7 @@ persistent actor class Unicycle(
       { at = now; tcyclesIn; icpOut; positionId = lpPositionId; outcome = #err msg };
     };
     func recordFund(event : LpEvent) {
-      lpHistory := History.prependCapped(lpHistory, event, MAX_LP_EVENTS);
+      lpHistory := History.prependCapped(lpHistory, event, tunable(MAX_LP_EVENTS));
       switch (event.outcome) {
         case (#ok) { log(#info, #lp, "admin lp fund: " # event.tcyclesIn.toText() # " tcycles in, " # event.icpOut.toText() # " icp out", ?caller) };
         case (#err msg) { log(#error, #lp, "admin lp fund failed: " # msg, ?caller) };
@@ -5220,7 +5339,9 @@ persistent actor class Unicycle(
         #adminListRecentTopUps : Any;
         #adminRemoveCanister : Any;
         #adminSeedDrainFixture : Any;
+        #adminListTunables : Any;
         #adminSetPendingHarvestIcp : Any;
+        #adminSetTunable : Any;
         #adminSnsDeregister : Any;
         #adminSnsRunDepositCheck : Any;
         #adminSnsRunDrainAlertCheck : Any;
@@ -5320,7 +5441,7 @@ persistent actor class Unicycle(
         or #adminSnsRunDepositCheck _ or #adminSnsRunReportCheck _
         or #adminSnsRunDrainAlertCheck _ or #adminSeedDrainFixture _
         or #adminRemoveCanister _ or #adminSnsDeregister _
-        or #adminSetPendingHarvestIcp _
+        or #adminSetPendingHarvestIcp _ or #adminSetTunable _
       ) { isAdmin(caller) };
 
       // SNS governance-only execute twins: legitimate callers are governance

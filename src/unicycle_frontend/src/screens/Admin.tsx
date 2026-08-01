@@ -12,6 +12,7 @@ import { fmtAgo, fmtICP, fmtInt, fmtPid, fmtTC, healthStatus, nsToMs, type UserE
 import { useNow } from '../ui/now';
 import { useToast } from '../ui/toast';
 import { useAdminSettings } from '../admin/useAdminSettings';
+import { useTunables } from '../admin/useTunables';
 import { useAdmins } from '../admin/useAdmins';
 import { useAdminVisibility } from '../admin/useAdminVisibility';
 import { useServiceConfig } from '../admin/useServiceConfig';
@@ -26,6 +27,7 @@ import type {
   AdminLpInfo,
   AdminServiceFundingInfo,
   AdminSettings,
+  TunableInfo,
 } from '../bindings/unicycle_backend/unicycle_backend';
 
 export interface AdminProps {
@@ -89,6 +91,76 @@ function SettingRow({
         {hint && <div className="faint" style={{ fontSize: 10.5 }}>{hint}</div>}
       </div>
       <input className="input mono" style={{ height: 32 }} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+// One runtime tunable. Unlike SettingRow (part of a single Save-all form) each
+// tunable commits on its own, and can be reset to its compiled default.
+function TunableRow({
+  info,
+  busy,
+  onSet,
+}: {
+  info: TunableInfo;
+  busy: boolean;
+  onSet: (key: string, value: bigint | null) => void;
+}) {
+  const [text, setText] = useState(info.value.toString());
+  // Re-sync when the backend value changes (after a commit or a reset).
+  useEffect(() => setText(info.value.toString()), [info.value]);
+
+  const parsed = /^\d+$/.test(text.trim()) ? BigInt(text.trim()) : null;
+  const dirty = parsed !== null && parsed !== info.value;
+  const outOfRange = parsed !== null && (parsed < info.min || parsed > info.max);
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 150px 62px',
+        gap: 10,
+        alignItems: 'center',
+        padding: '9px 0',
+        borderBottom: '1px solid var(--border)',
+      }}
+    >
+      <div>
+        <div className="mono" style={{ fontSize: 12 }}>
+          {info.key}
+          {info.overridden && (
+            <span className="eyebrow" style={{ marginLeft: 7, color: 'var(--accent-ink)' }}>
+              overridden
+            </span>
+          )}
+        </div>
+        <div className="faint" style={{ fontSize: 10.5 }}>
+          default {info.defaultValue.toString()} · range {info.min.toString()}–{info.max.toString()}
+        </div>
+      </div>
+      <input
+        className="input mono"
+        style={{ height: 32, borderColor: outOfRange ? 'var(--danger, #c33)' : undefined }}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <button
+        className="btn sm accent"
+        disabled={busy || !dirty || outOfRange}
+        onClick={() => parsed !== null && onSet(info.key, parsed)}
+      >
+        Set
+      </button>
+      {info.overridden && (
+        <button
+          className="btn sm"
+          style={{ gridColumn: '3', justifySelf: 'end' }}
+          disabled={busy}
+          onClick={() => onSet(info.key, null)}
+        >
+          Reset
+        </button>
+      )}
     </div>
   );
 }
@@ -164,6 +236,7 @@ function PoolBalCell({ label, icp, tc }: { label: string; icp: bigint; tc: bigin
 
 export function Admin({ identity, tab, onTabChange }: AdminProps) {
   const settingsHook = useAdminSettings(identity);
+  const tunablesHook = useTunables(identity);
   const adminsHook = useAdmins(identity);
   const visibility = useAdminVisibility(identity);
   const config = useServiceConfig(identity);
@@ -491,6 +564,31 @@ export function Admin({ identity, tab, onTabChange }: AdminProps) {
         </Panel>
 
         <div className="grid" style={{ gap: 'var(--gap)' }}>
+          {/* runtime tunables — compiled constants with per-key overrides */}
+          <Panel title="Constants" eyebrow="// runtime overrides">
+            {tunablesHook.error ? (
+              <ErrorText error={tunablesHook.error} />
+            ) : tunablesHook.tunables ? (
+              tunablesHook.tunables.map((t) => (
+                <TunableRow
+                  key={t.key}
+                  info={t}
+                  busy={tunablesHook.saving === t.key}
+                  onSet={(key, value) => {
+                    void tunablesHook.set(key, value).then((res) => {
+                      if (!res.ok) toast(res.message);
+                    });
+                  }}
+                />
+              ))
+            ) : (
+              <div className="faint">{tunablesHook.loading ? 'Loading constants…' : '—'}</div>
+            )}
+            <div className="faint" style={{ fontSize: 10.5, marginTop: 8 }}>
+              Compiled defaults; an override persists until reset. Distinct from Settings above.
+            </div>
+          </Panel>
+
           {/* service config */}
           <Panel title="Service configuration" eyebrow="// canister wiring">
             <Field label="ICPSwap pool">
