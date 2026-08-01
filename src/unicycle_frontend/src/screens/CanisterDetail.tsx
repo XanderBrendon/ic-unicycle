@@ -41,6 +41,9 @@ export interface CanisterDetailProps {
   identity: Identity;
   canisterId: Principal;
   actingAs: Principal | null;
+  // Set on an SNS canister the identity does not administer: the readings and
+  // history stay visible, every mutating control is dropped.
+  readOnly?: boolean;
   onBack: () => void;
   onChanged: () => void;
 }
@@ -286,7 +289,7 @@ function HistoryChart({ points, minTC, status, topUps }: { points: Point[]; minT
   );
 }
 
-export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChanged }: CanisterDetailProps) {
+export function CanisterDetail({ identity, canisterId, actingAs, readOnly = false, onBack, onChanged }: CanisterDetailProps) {
   const { data, loading, error, refresh } = useCanisterHistory(identity, canisterId, actingAs);
   const schedule = useTimerSchedule(identity);
   const now = useNow();
@@ -444,23 +447,25 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
             </div>
           </div>
         </div>
-        <div className="detail-actions" style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={recordNow} disabled={busy}>
-            <Icon name="refresh" size={14} />
-            Record now
-          </button>
-          <button className="btn" onClick={() => setEditing(true)} disabled={busy}>
-            <Icon name="edit" size={14} />
-            Edit
-          </button>
-          <button className="btn" onClick={toggleSuspend} disabled={busy}>
-            <Icon name={suspended ? 'play' : 'pause'} size={14} />
-            {suspended ? 'Resume' : 'Suspend'}
-          </button>
-          <button className="btn danger" onClick={() => setConfirmRemove(true)} disabled={busy}>
-            <Icon name="trash" size={14} />
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="detail-actions" style={{ display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={recordNow} disabled={busy}>
+              <Icon name="refresh" size={14} />
+              Record now
+            </button>
+            <button className="btn" onClick={() => setEditing(true)} disabled={busy}>
+              <Icon name="edit" size={14} />
+              Edit
+            </button>
+            <button className="btn" onClick={toggleSuspend} disabled={busy}>
+              <Icon name={suspended ? 'play' : 'pause'} size={14} />
+              {suspended ? 'Resume' : 'Suspend'}
+            </button>
+            <button className="btn danger" onClick={() => setConfirmRemove(true)} disabled={busy}>
+              <Icon name="trash" size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {suspended && config.suspendedUntil !== undefined && (

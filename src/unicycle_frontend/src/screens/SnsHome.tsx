@@ -25,10 +25,13 @@ export interface SnsHomeProps {
   tab: SnsTab;
   onTabChange: (tab: SnsTab) => void;
   onOpen: (id: Principal) => void;
+  // True for anyone who is not one of this SNS's admins: the data is public,
+  // the controls are not.
+  readOnly: boolean;
 }
 
 export function SnsHome({
-  identity, root, info, infoRefreshing, infoError, onRefreshInfo, tab, onTabChange, onOpen,
+  identity, root, info, infoRefreshing, infoError, onRefreshInfo, tab, onTabChange, onOpen, readOnly,
 }: SnsHomeProps) {
   const fleet = useFleet(identity, root);
   const deposit = useDepositBalances(identity, root); // the SNS root's deposit subaccount
@@ -50,7 +53,10 @@ export function SnsHome({
       <div className="sns-head" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 'var(--gap)' }}>
         <Icon name="shield" size={18} />
         <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{info?.name ?? fmtPid(root.toText(), 6, 4)}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {info?.name ?? fmtPid(root.toText(), 6, 4)}
+            {readOnly && <span className="badge muted">Read only</span>}
+          </div>
           <CopyId id={root.toText()} />
         </div>
         <button
@@ -80,21 +86,29 @@ export function SnsHome({
         (fleet.canisters === null && !fleet.error ? (
           <OverviewLoading />
         ) : !fleet.error && fleet.canisters?.length === 0 ? (
-          <OverviewEmpty onAdd={() => setAddOpen(true)} onGroupEdit={() => setGroupEditOpen(true)} />
+          readOnly ? (
+            <div className="panel faint" style={{ padding: 24, textAlign: 'center' }}>
+              This SNS has no canisters under Unicycle management yet.
+            </div>
+          ) : (
+            <OverviewEmpty onAdd={() => setAddOpen(true)} onGroupEdit={() => setGroupEditOpen(true)} />
+          )
         ) : (
           <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
             <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />
             <FleetDashboard
               fleet={fleet}
               onOpen={onOpen}
-              onAdd={() => setAddOpen(true)}
-              onGroupEdit={() => setGroupEditOpen(true)}
+              onAdd={readOnly ? undefined : () => setAddOpen(true)}
+              onGroupEdit={readOnly ? undefined : () => setGroupEditOpen(true)}
               schedule={schedule}
             />
           </div>
         ))}
 
-      {tab === 'settings' && <SnsSettings identity={identity} root={root} governance={governance} />}
+      {tab === 'settings' && (
+        <SnsSettings identity={identity} root={root} governance={governance} readOnly={readOnly} />
+      )}
 
       {addOpen && (
         <AddCanisterModal

@@ -15,7 +15,7 @@ import type {
 import { useSnsConfigs } from '../sns/useSnsConfigs';
 import { useSnsPendingConfigProposals } from '../sns/useSnsPendingProposals';
 import { snsProposalUrl } from '../sns/snsInfo';
-import { Panel, Field, Modal, ErrorHint } from '../ui/primitives';
+import { Panel, Field, Modal, ErrorHint, KV } from '../ui/primitives';
 import { useToast } from '../ui/toast';
 import { parseDecimalAmount, formatTokenAmount } from '../wallet/format';
 
@@ -467,10 +467,47 @@ function DrainAlertSection({ identity, root, current, pendingId, onProposed }: {
   );
 }
 
-export function SnsSettings({ identity, root, governance }: {
+// Read-only rendering of the same three config domains for non-admins: plain
+// values instead of inputs, no propose controls. Pending-proposal links stay —
+// they are public governance data.
+function ReadOnlyView({ rootText, configs, pending }: {
+  rootText: string;
+  configs: ReturnType<typeof useSnsConfigs>;
+  pending: ReturnType<typeof useSnsPendingConfigProposals>;
+}) {
+  const { deposit, report, drainAlert } = configs;
+  return (
+    <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
+      <Panel title="Deposit auto-top-up" eyebrow="// treasury → Unicycle ICP deposits">
+        <PendingNote rootText={rootText} id={pending.pending.deposit} />
+        <KV k="Min balance">{deposit ? minDisp(deposit.minBalanceE8s) : 'not set'}</KV>
+        <KV k="Deposit amount">{deposit ? icpDisp(deposit.depositAmountE8s) : 'not set'}</KV>
+        <KV k="Cycle usage report">
+          {deposit ? (deposit.includeReport ? 'included' : 'omitted') : 'not set'}
+        </KV>
+      </Panel>
+
+      <Panel title="Cycle report" eyebrow="// recurring usage-report proposals">
+        <PendingNote rootText={rootText} id={pending.pending.report} />
+        <KV k="Report cadence">{report ? daysDisp(report.cadenceDays) : 'not set'}</KV>
+      </Panel>
+
+      <Panel title="Drain alerts" eyebrow="// unusual burn detection">
+        <PendingNote rootText={rootText} id={pending.pending.drainAlert} />
+        <KV k="Weekly avg threshold">{drainAlert ? pctDisp(drainAlert.weeklyAvgFactorPct) : 'not set'}</KV>
+        <KV k="Monthly avg threshold">{drainAlert ? pctDisp(drainAlert.monthlyAvgFactorPct) : 'not set'}</KV>
+        <KV k="Day-over-day threshold">{drainAlert ? pctDisp(drainAlert.dayOverDayFactorPct) : 'not set'}</KV>
+        <KV k="Alert cooldown">{drainAlert ? cooldownDisp(drainAlert.alertCooldownDays) : 'not set'}</KV>
+      </Panel>
+    </div>
+  );
+}
+
+export function SnsSettings({ identity, root, governance, readOnly }: {
   identity: Identity;
   root: Principal;
   governance: Principal | null;
+  readOnly: boolean;
 }) {
   const configs = useSnsConfigs(identity, governance);
   const pending = useSnsPendingConfigProposals(governance);
@@ -488,6 +525,10 @@ export function SnsSettings({ identity, root, governance }: {
   }
   if (configs.loading && configs.deposit === undefined) {
     return <div className="faint" style={{ padding: 20 }}>Loading current configuration…</div>;
+  }
+
+  if (readOnly) {
+    return <ReadOnlyView rootText={root.toText()} configs={configs} pending={pending} />;
   }
 
   const onProposed = () => {

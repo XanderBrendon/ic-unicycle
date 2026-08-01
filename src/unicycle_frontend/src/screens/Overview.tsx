@@ -700,7 +700,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, schedule, snsNames }: {
   fleet: Fleet;
   onOpen: (id: Principal) => void;
-  onAdd: () => void;
+  onAdd?: () => void; // omitted on the read-only SNS view
   onAddSns?: () => void;
   onGroupEdit?: () => void;
   schedule: { nextCheckMs: number | null; refresh: () => void } | null; // null hides the next-check indicator
@@ -790,10 +790,12 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
                 Track SNS
               </button>
             )}
-            <button className="btn accent sm" onClick={onAdd}>
-              <Icon name="plus" size={14} />
-              Track canister
-            </button>
+            {onAdd && (
+              <button className="btn accent sm" onClick={onAdd}>
+                <Icon name="plus" size={14} />
+                Track canister
+              </button>
+            )}
           </>
         }
       >

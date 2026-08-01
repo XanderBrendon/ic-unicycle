@@ -5,6 +5,7 @@ import { useFleet } from './canisters/useFleet';
 import { useIsAdmin } from './admin/useIsAdmin';
 import { useMySnsAdminRoots } from './admin/useMySnsAdminRoots';
 import { useMyTrackedSnsRoots } from './canisters/useMyTrackedSnsRoots';
+import { useOnboardedSnsRoots } from './sns/useOnboardedSnsRoots';
 import { useSnsInfos } from './sns/useSnsInfos';
 import { Icon, type IconName } from './ui/icons';
 import { useTheme } from './ui/theme';
@@ -49,31 +50,39 @@ export function App() {
   const { isAdmin, loading: adminLoading } = useIsAdmin(identity);
   const { roots: snsAdminRoots } = useMySnsAdminRoots(identity);
   const { roots: trackedSnsRoots, refresh: refreshTrackedSns } = useMyTrackedSnsRoots(identity);
+  const { roots: onboardedSnsRoots } = useOnboardedSnsRoots(identity);
   const allSnsRoots = useMemo(() => {
     const seen = new Set<string>();
     const out: Principal[] = [];
-    for (const r of [...(snsAdminRoots ?? []), ...(trackedSnsRoots ?? [])]) {
+    for (const r of [...(snsAdminRoots ?? []), ...(trackedSnsRoots ?? []), ...(onboardedSnsRoots ?? [])]) {
       if (!seen.has(r.toText())) {
         seen.add(r.toText());
         out.push(r);
       }
     }
     return out;
-  }, [snsAdminRoots, trackedSnsRoots]);
+  }, [snsAdminRoots, trackedSnsRoots, onboardedSnsRoots]);
   const snsInfos = useSnsInfos(allSnsRoots);
+
+  // An SNS page is read-only unless the identity is one of that SNS's admins.
+  // `snsAdminRoots === null` (still loading) reads as read-only, so the admin
+  // controls appear only once the grant is confirmed rather than flashing in.
+  const isSnsAdminOf = (root: Principal) =>
+    (snsAdminRoots ?? []).some((r) => r.toText() === root.toText());
 
   const selected = route.page === 'canister' ? route.id : null;
 
-  // Keep the route valid: Admin is admin-only; an sns/snsCanister route must
-  // still be one of the roots the identity administers. Replace (not push) so
-  // back doesn't bounce, and wait for the roots to resolve (null while loading)
-  // before kicking a deep-linked route out.
+  // Keep the route valid: Admin is admin-only; an sns/snsCanister route must be
+  // a root the identity administers or an onboarded SNS (read-only). Replace
+  // (not push) so back doesn't bounce, and wait for BOTH root lists to resolve
+  // (null while loading) before kicking a deep-linked route out.
   useEffect(() => {
     if (route.page === 'admin' && !isAdmin && !adminLoading) navigate({ page: 'overview' }, { replace: true });
     if (
       (route.page === 'sns' || route.page === 'snsCanister') &&
       snsAdminRoots !== null &&
-      !snsAdminRoots.some((r) => r.toText() === route.root.toText())
+      onboardedSnsRoots !== null &&
+      ![...snsAdminRoots, ...onboardedSnsRoots].some((r) => r.toText() === route.root.toText())
     ) {
       navigate({ page: 'overview' }, { replace: true });
     }
@@ -87,7 +96,7 @@ export function App() {
     if (route.page === 'blackholed' && trackedSnsRoots !== null && trackedSnsRoots.length === 0) {
       navigate({ page: 'overview' }, { replace: true });
     }
-  }, [route, isAdmin, adminLoading, snsAdminRoots, trackedSnsRoots, navigate]);
+  }, [route, isAdmin, adminLoading, snsAdminRoots, onboardedSnsRoots, trackedSnsRoots, navigate]);
 
   // Close the mobile drawer whenever the route changes — nav items, breadcrumbs,
   // canister open, and guard redirects all funnel through a route change.
@@ -102,6 +111,13 @@ export function App() {
   const principalText = identity.getPrincipal().toString();
 
   const snsNavRoots = snsAdminRoots ?? [];
+  // Onboarded SNSes the identity does NOT administer — the ones it administers
+  // stay under "SNS Admin" rather than appearing twice. Sorted by the resolved
+  // name so the list is stable as metadata loads.
+  const snsDaoRoots = (onboardedSnsRoots ?? [])
+    .filter((r) => !snsNavRoots.some((a) => a.toText() === r.toText()))
+    .map((r) => ({ root: r, label: snsInfos.infos[r.toText()]?.name ?? fmtPid(r.toText(), 6, 4) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
   const nav: NavGroup[] = [
     {
       sec: null,
@@ -149,6 +165,18 @@ export function App() {
             icon: 'shield',
             route: { page: 'sns', root: r, tab: 'overview' },
             active: (route.page === 'sns' || route.page === 'snsCanister') && route.root.toText() === r.toText(),
+          })),
+        }]
+      : []),
+    ...(snsDaoRoots.length > 0
+      ? [{
+          sec: 'SNS DAO',
+          items: snsDaoRoots.map(({ root, label }): NavEntry => ({
+            key: `dao:${root.toText()}`,
+            label,
+            icon: 'shield',
+            route: { page: 'sns', root, tab: 'overview' },
+            active: (route.page === 'sns' || route.page === 'snsCanister') && route.root.toText() === root.toText(),
           })),
         }]
       : []),
@@ -297,12 +325,14 @@ export function App() {
                 tab={route.tab}
                 onTabChange={(tab) => navigate({ page: 'sns', root: route.root, tab })}
                 onOpen={(id) => navigate({ page: 'snsCanister', root: route.root, id })}
+                readOnly={!isSnsAdminOf(route.root)}
               />
             ) : route.page === 'snsCanister' ? (
               <CanisterDetail
                 identity={identity}
                 canisterId={route.id}
                 actingAs={route.root}
+                readOnly={!isSnsAdminOf(route.root)}
                 onBack={() => navigate({ page: 'sns', root: route.root, tab: 'overview' })}
                 onChanged={() => {}}
               />

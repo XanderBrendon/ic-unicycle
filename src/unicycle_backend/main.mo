@@ -959,6 +959,27 @@ persistent actor class Unicycle(
     };
   };
 
+  // An SNS is "onboarded" once `snsSetup` (or the standalone
+  // `snsSetProposalNeuron` twin) has recorded its proposal neuron;
+  // `clearSnsState` drops it on deregister. Public SNS reads key off this.
+  func isOnboardedSns(root : Principal) : Bool {
+    switch (snsProposalNeuron.get(root)) {
+      case null { false };
+      case (?_) { true };
+    };
+  };
+
+  // Read gate for the SNS query family: an onboarded SNS's cycle data is public,
+  // anything else falls back to the admin check (which traps). The onboarded
+  // test is a security control, not a display filter — `tracked` keys SNS roots
+  // and user principals in the same map, and only the two writers above (both of
+  // which resolve an SNS governance caller → root) can put a principal in
+  // `snsProposalNeuron`, so a user principal never passes this gate.
+  func requireSnsReadable(caller : Principal, root : Principal, method : Text) {
+    if (isOnboardedSns(root)) return;
+    requireSnsAdmin(caller, root, method);
+  };
+
   // Per-top-up fee charge (US16). A single `icrc1_transfer` from the user's
   // TCYCLES deposit subaccount to `toSubaccount` on the backend — `null` is the
   // default account (the fee pool → LP, US16); a primary-admin deposit
@@ -3724,6 +3745,13 @@ persistent actor class Unicycle(
       .toArray();
   };
 
+  // Every SNS root onboarded to Unicycle — the frontend's "SNS DAO" nav section
+  // reads this so any signed-in user can browse an onboarded SNS's cycle data
+  // read-only. Same membership test `requireSnsReadable` gates public reads on.
+  public query func getOnboardedSnsRoots() : async [Principal] {
+    snsProposalNeuron.keys().toArray();
+  };
+
   // ---------------------------------------------------------------------------
   // User-tracked SNSes: a signed-in user picks SNSes to help fund from their
   // own deposit subaccount. Tracking an SNS only creates the association (and
@@ -3797,12 +3825,16 @@ persistent actor class Unicycle(
     };
   };
 
-  // Act-on-behalf family (US27): each authorizes `caller ∈ snsAdmins[root]` via
-  // `requireSnsAdmin` (which *traps* on failure, before any await) then delegates
-  // to the existing `*For(root, …)` helper, returning its Result unchanged. The
-  // queries trap on a non-admin caller too. Surface = canister-management only.
+  // Act-on-behalf family (US27): each *mutating* method authorizes
+  // `caller ∈ snsAdmins[root]` via `requireSnsAdmin` (which *traps* on failure,
+  // before any await) then delegates to the existing `*For(root, …)` helper,
+  // returning its Result unchanged. Surface = canister-management only.
+  //
+  // The three queries use the looser `requireSnsReadable`: an onboarded SNS's
+  // cycle data is public, so any caller may read it; a non-onboarded root still
+  // requires admin.
   public shared query ({ caller }) func asSnsGetTrackedCanisters(root : Principal) : async [TrackedCanister] {
-    requireSnsAdmin(caller, root, "asSnsGetTrackedCanisters");
+    requireSnsReadable(caller, root, "asSnsGetTrackedCanisters");
     switch (tracked.get(root)) {
       case null { [] };
       case (?userMap) {
@@ -3817,7 +3849,7 @@ persistent actor class Unicycle(
     root : Principal,
     canisterId : Principal,
   ) : async ?CanisterHistory {
-    requireSnsAdmin(caller, root, "asSnsGetCanisterHistory");
+    requireSnsReadable(caller, root, "asSnsGetCanisterHistory");
     switch (tracked.get(root)) {
       case null { null };
       case (?userMap) {
@@ -3837,7 +3869,7 @@ persistent actor class Unicycle(
   };
 
   public shared query ({ caller }) func asSnsGetFleetSummary(root : Principal) : async [CanisterHistory] {
-    requireSnsAdmin(caller, root, "asSnsGetFleetSummary");
+    requireSnsReadable(caller, root, "asSnsGetFleetSummary");
     fleetSummaryFor(root);
   };
 
@@ -5335,6 +5367,7 @@ persistent actor class Unicycle(
         #getMyLoyaltyStatus : Any;
         #getMySnsAdminRoots : Any;
         #getMyTrackedSnsRoots : Any;
+        #getOnboardedSnsRoots : Any;
         #getPrimaryAdmin : Any;
         #getSnsAdmins : Any;
         #getSnsDepositAccount : Any;

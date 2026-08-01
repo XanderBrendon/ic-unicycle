@@ -301,6 +301,12 @@
 
       snsRootByGovernance.add(snsGovernance, snsRootId);
 
+      // The proposal neuron is what marks an SNS as onboarded — no admin grant
+      // or config can exist without `snsSetup` having recorded one, and the
+      // public "SNS DAO" nav reads exactly this map. A synthetic 32-byte id:
+      // nothing here ever calls governance with it.
+      snsProposalNeuron.add(snsRootId, Blob.fromArray(Array.repeat(0x11 : Nat8, 32)));
+
       let snsAdminSet = Set.empty<Principal>();
       snsAdminSet.add(ownerA);
       snsAdmins.add(snsRootId, snsAdminSet);
