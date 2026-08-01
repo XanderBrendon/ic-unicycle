@@ -246,8 +246,14 @@ function describe(
     const { function_id, payload } = action.ExecuteGenericNervousSystemFunction;
     const method = ctx.functionMethods.get(function_id);
     // Unknown id: either not a Unicycle function, or one a deregister removed.
-    // Only the second is interesting, and only when Unicycle proposed it.
-    if (!method) return byUnicycle ? `Unicycle function #${function_id}` : null;
+    // Only the second is interesting, and the proposer alone doesn't separate
+    // them — an SNS may give Unicycle a neuron it also proposes its own
+    // business through, and that neuron's other custom-function proposals would
+    // all land here. So this takes the same pair of tests a Motion does; every
+    // generic-function proposal Unicycle submits is titled "Unicycle: …".
+    if (!method) {
+      return byUnicycle && title.startsWith('Unicycle') ? `Unicycle function #${function_id}` : null;
+    }
     return describeTwin(method, payload);
   }
 
