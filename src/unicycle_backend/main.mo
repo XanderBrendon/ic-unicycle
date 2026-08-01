@@ -41,12 +41,7 @@ import Tunables "lib/Tunables";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
 import SnsPropose "lib/SnsPropose";
-import Migration "migration";
 
-// One-shot: drops the 19 stale stable module-level constants now that they are
-// `transient`. Remove this and `migration.mo` in the first commit after the
-// upgrade lands.
-(with migration = Migration.run)
 persistent actor class Unicycle(
   blackholeCanisterId : Principal,
   icpSwapPoolId : Principal,
@@ -217,7 +212,8 @@ persistent actor class Unicycle(
   // `transient`: as plain `let`s in a `persistent actor` they were persisted as
   // stable variables, so on upgrade the stored value was restored and the source
   // initializer SKIPPED — editing a constant did nothing to the live canister.
-  // (Same defect as the old stable `snsFunctionSpecs`; see migration.mo.)
+  // (Same defect as the old stable `snsFunctionSpecs`. The 19 stale stable copies
+  // were dropped by a one-shot migration, since removed — see git history.)
   //
   // Operational constants are declared as a `Tunables.Spec` beside the code they
   // govern and read via `tunable(SPEC)`, which prefers a stored override. The
