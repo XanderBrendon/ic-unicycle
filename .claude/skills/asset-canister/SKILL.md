@@ -2,7 +2,7 @@
 name: asset-canister
 description: "Deploy frontend assets to the IC. Covers certified assets, SPA routing with .ic-assets.json5, content encoding, and programmatic uploads. Use when hosting a frontend, deploying static files, or setting up SPA routing on IC. Do NOT use for canister-level code patterns or custom domain setup — use custom-domains instead."
 license: Apache-2.0
-compatibility: "icp-cli >= 0.2.2, Node.js >= 22"
+compatibility: "icp-cli >= 0.2.7, Node.js >= 22"
 metadata:
   title: Asset Canister
   category: Frontend
@@ -26,7 +26,7 @@ Access patterns:
 | Environment | URL Pattern |
 |-------------|-------------|
 | Local | `http://<canister-id>.localhost:8000` |
-| Mainnet | `https://<canister-id>.ic0.app` or `https://<canister-id>.icp0.io` |
+| Mainnet | `https://<canister-id>.icp.net` |
 | Custom domain | `https://yourdomain.com` (with DNS configuration) |
 
 ## Mistakes That Break Your Build
@@ -45,9 +45,21 @@ Access patterns:
 
 7. **Pinning the asset canister Wasm version below `0.30.2`.** The `ic_env` cookie (used by `safeGetCanisterEnv()` from `@icp-sdk/core` to read canister IDs and the root key at runtime) is only served by asset canister Wasm versions >= `0.30.2`. The Wasm version is set via `configuration.version` in the recipe, independently of the recipe version itself. If you pin an older Wasm version, the cookie is silently missing and frontend code relying on `ic_env` will fail. Either omit `configuration.version` (latest is used) or pin to `0.30.2` or later.
 
-8. **Not configuring `allow_raw_access` correctly.** The asset canister has two serving modes: certified (via `ic0.app` / `icp0.io`, where HTTP gateways verify response integrity) and raw (via `raw.ic0.app` / `raw.icp0.io`, where no verification occurs). By default, `allow_raw_access` is `true`, meaning assets are also available on the raw domain. On the raw domain, boundary nodes or a network-level attacker can tamper with response content undetected. Set `"allow_raw_access": false` in `.ic-assets.json5` for any sensitive assets. Only enable raw access when strictly needed.
+8. **Not configuring `allow_raw_access` correctly.** The asset canister has two serving modes: certified (via `icp.net`, where HTTP gateways verify response integrity) and raw (via `raw.icp.net`, where no verification occurs). By default, `allow_raw_access` is `true`, meaning assets are also available on the raw domain. On the raw domain, boundary nodes or a network-level attacker can tamper with response content undetected. Set `"allow_raw_access": false` in `.ic-assets.json5` for any sensitive assets. Only enable raw access when strictly needed.
 
 9. **Downgrading the asset canister WASM version.** Upgrading a canister to an older WASM version can fail with "Cannot parse header" panics if the stable memory format changed between versions. Prefer the `@dfinity/asset-canister` recipe over `type: pre-built` with a manually specified WASM URL — the recipe loads the latest asset canister version automatically if not explicitly specified in `configuration.version`. If you must pin a version, ensure it matches or exceeds the version currently deployed on-chain. If a downgrade is intentional, use reinstall mode (`icp deploy --mode reinstall`) instead of upgrade — this wipes stable memory and all uploaded assets.
+
+10. **Using the removed `type: assets` sync step.** icp-cli **0.3.0 removes the built-in `type: assets` sync step** — asset uploading is no longer part of the CLI core. A manifest that still uses it fails to load: *"icp-cli no longer supports the `assets` sync step type. Switch to a `script` or `plugin` sync step."* The fix is to use the `@dfinity/asset-canister@v2.2.1` recipe (shown below), which generates a `plugin`-based sync step automatically. **Recipe versions ≤ `v2.1.0` generate the old `type: assets` step and break on 0.3.0** — pin `v2.2.1` or later. Sync plugins are supported since icp-cli `0.2.7`, so adopting `v2.2.1` now (well before 0.3.0) makes the transition seamless. If you write a sync step by hand instead of using the recipe, use `type: plugin` (pointing at the certified-assets `sync_plugin.wasm` release artifact with its `sha256`) or `type: script`:
+
+    ```yaml
+    sync:
+      steps:
+        - type: plugin
+          url: https://github.com/dfinity/certified-assets/releases/download/migration-v2.2.1-6b48585/sync_plugin.wasm
+          sha256: ca7cb5666c30d2875f8d5e10535f8a53f97a86c79c263f7d5bdac2fdd1bbf83c
+          dirs:
+            - dist
+    ```
 
 ## Implementation
 
@@ -57,7 +69,7 @@ Access patterns:
 canisters:
   - name: frontend
     recipe:
-      type: "@dfinity/asset-canister@v2.1.0"
+      type: "@dfinity/asset-canister@v2.2.1"
       configuration:
         dir: dist
         build:
@@ -143,7 +155,7 @@ import { readFileSync, readdirSync } from "fs";
 // For browser frontends, use rootKey from safeGetCanisterEnv() instead (see
 // the internet-identity skill or icp-cli/references/binding-generation.md).
 const LOCAL_REPLICA = "http://localhost:8000";
-const MAINNET = "https://ic0.app";
+const MAINNET = "https://icp-api.io";
 const host = LOCAL_REPLICA; // Change to MAINNET for production
 
 async function manageAssets() {
@@ -279,7 +291,7 @@ icp canister call frontend http_request '(record {
 
 # 5. Open in browser
 # Local:   http://<frontend-canister-id>.localhost:8000
-# Mainnet: https://<frontend-canister-id>.ic0.app
+# Mainnet: https://<frontend-canister-id>.icp.net
 
 # 6. Get canister ID
 icp canister id frontend
