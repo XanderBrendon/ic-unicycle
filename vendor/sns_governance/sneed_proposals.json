@@ -1,0 +1,1324 @@
+{
+ "functions": [
+  {
+   "id": {
+    "__bigint": "4000"
+   },
+   "name": "Unicycle: Setup",
+   "description": [
+    "Bootstrap that registers all Unicycle custom functions on this SNS."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetupValidate"
+      ],
+      "target_method_name": [
+       "snsSetup"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4001"
+   },
+   "name": "Unicycle: Withdraw",
+   "description": [
+    "Withdraw ICP/tcycles from the SNS's Unicycle subaccount."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsWithdrawValidate"
+      ],
+      "target_method_name": [
+       "snsWithdraw"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4002"
+   },
+   "name": "Unicycle: Track Canister",
+   "description": [
+    "Register or update a tracked canister's top-up config."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsUpsertCanisterValidate"
+      ],
+      "target_method_name": [
+       "snsUpsertCanister"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4003"
+   },
+   "name": "Unicycle: Set Canister Suspended",
+   "description": [
+    "Suspend or resume automatic top-ups for a tracked canister."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetCanisterSuspendedValidate"
+      ],
+      "target_method_name": [
+       "snsSetCanisterSuspended"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4004"
+   },
+   "name": "Unicycle: Remove Canister",
+   "description": [
+    "Stop tracking a canister."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsRemoveCanisterValidate"
+      ],
+      "target_method_name": [
+       "snsRemoveCanister"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4005"
+   },
+   "name": "Unicycle: Record Cycles Now",
+   "description": [
+    "Record a cycle reading now for a tracked canister."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsRecordCyclesNowValidate"
+      ],
+      "target_method_name": [
+       "snsRecordCyclesNow"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4006"
+   },
+   "name": "Unicycle: Set Proposal Neuron",
+   "description": [
+    "Set the neuron Unicycle uses to submit proposals for this SNS."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetProposalNeuronValidate"
+      ],
+      "target_method_name": [
+       "snsSetProposalNeuron"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4007"
+   },
+   "name": "Unicycle: Set Deposit Auto-Top-Up",
+   "description": [
+    "Configure automatic SNS treasury → Unicycle ICP deposits (min balance, deposit amount, report toggle)."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetDepositConfigValidate"
+      ],
+      "target_method_name": [
+       "snsSetDepositConfig"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4008"
+   },
+   "name": "Unicycle: Set Cycle Report Cadence",
+   "description": [
+    "Configure recurring cycle-usage report proposals (cadence in days; 0 disables)."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetReportConfigValidate"
+      ],
+      "target_method_name": [
+       "snsSetReportConfig"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4009"
+   },
+   "name": "Unicycle: Set Cycle Drain Alerts",
+   "description": [
+    "Configure cycle-drain alert proposals (per-window % thresholds; 0 disables a check; cooldown in days)."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetDrainAlertConfigValidate"
+      ],
+      "target_method_name": [
+       "snsSetDrainAlertConfig"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4010"
+   },
+   "name": "Unicycle: Grant Admin",
+   "description": [
+    "Grant a principal admin access to manage this SNS's Unicycle fleet from the frontend."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsGrantAdminValidate"
+      ],
+      "target_method_name": [
+       "snsGrantAdmin"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4011"
+   },
+   "name": "Unicycle: Revoke Admin",
+   "description": [
+    "Revoke a principal's Unicycle admin access for this SNS."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsRevokeAdminValidate"
+      ],
+      "target_method_name": [
+       "snsRevokeAdmin"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4012"
+   },
+   "name": "Unicycle: Set Withdraw Destination",
+   "description": [
+    "Set the destination account for non-ICP (ICRC) token withdrawals; ICP always returns to the SNS treasury."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsSetWithdrawDestinationValidate"
+      ],
+      "target_method_name": [
+       "snsSetWithdrawDestination"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": {
+    "__bigint": "4013"
+   },
+   "name": "Unicycle: Deregister",
+   "description": [
+    "Offboard this SNS from Unicycle: withdraw all Unicycle-held funds to the SNS, remove every Unicycle custom function, and erase all Unicycle configuration for this SNS."
+   ],
+   "function_type": [
+    {
+     "GenericNervousSystemFunction": {
+      "topic": [
+       {
+        "ApplicationBusinessLogic": null
+       }
+      ],
+      "validator_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "target_canister_id": [
+       {
+        "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+       }
+      ],
+      "validator_method_name": [
+       "snsDeregisterValidate"
+      ],
+      "target_method_name": [
+       "snsDeregister"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "proposals": [
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "327"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "ApplicationBusinessLogic": null
+    }
+   ],
+   "action": {
+    "__bigint": "4000"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "300"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1783303478"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "345600"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "1052059412"
+     },
+     "yes": {
+      "__bigint": "704817609165"
+     },
+     "total": {
+      "__bigint": "843537811486"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1783632125"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "86400"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1783371325"
+   },
+   "proposal": [
+    {
+     "url": "",
+     "title": "Bootstrap Unicycle for Sneed top-ups",
+     "action": [
+      {
+       "ExecuteGenericNervousSystemFunction": {
+        "function_id": {
+         "__bigint": "4000"
+        },
+        "payload": {
+         "__bytes": "4449444c026d7b6c0284d9fbd20178aec69a860b000101a10f00000000000020b8aea533371402076b6555759fb4236ecca165508de057f5ecdc6343e06ddf43"
+        }
+       }
+      }
+     ],
+     "summary": "Execute the Unicycle Setup function to bootstrap Sneed. Executing this proposal will:\nMark the neuron b8aea533371402076b6555759fb4236ecca165508de057f5ecdc6343e06ddf43 as the source of Unicycle backend proposals (e.g. proposals for configuration changes proposed by Unicycle Sneed admins, proposals for ICP transfers to fund topups, etc).\nRegister 12 custom functions for interacting with Unicycle config to allow any Sneed staker to propose configuration changes that the DAO may vote on.\nNext steps after this proposal and the 12 registration proposals pass will be to set admins and an initial configuration for automatic transfers of funds to sneed's unicycle deposit account.\n--------------------------------\n<br><br>\nThis proposal was created using [https://ic-toolkit.app](https://ic-toolkit.app)\n<br><br>\n"
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "31cb4dca8a8d1f1a5cd862314692dae8d7465ac604e64153e687a1688ff99912"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1783649078"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "5000"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1783371369"
+   }
+  },
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "341"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "ApplicationBusinessLogic": null
+    }
+   ],
+   "action": {
+    "__bigint": "4010"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "300"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1783442217"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "345600"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "3314399359"
+     },
+     "yes": {
+      "__bigint": "554815485463"
+     },
+     "total": {
+      "__bigint": "843463584639"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1783758750"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "86400"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1783611417"
+   },
+   "proposal": [
+    {
+     "url": "",
+     "title": "Make XanderBrendon Unicycle Admin for Sneed",
+     "action": [
+      {
+       "ExecuteGenericNervousSystemFunction": {
+        "function_id": {
+         "__bigint": "4010"
+        },
+        "payload": {
+         "__bytes": "4449444c016c018fd9aae201680100011d14e55da6bcb6498f759dea1bd8efa38a4af9a9460162503d2f3f888e02"
+        }
+       }
+      }
+     ],
+     "summary": "This proposal makes XB a unicycle admin for Sneed (PID y3lny-zqu4v-o2npf-wjghx-lhpkd-pmo7i-4kjl4-2srqb-mjid2-lz7rc-hae).\n\nUnicycle admins can choose which SNS controlled canisters are tracked by Unicycle and what their top-up thresholds are. Additonally, Unicycle admins can use the Unicycle interface to create sneed proposals (via the unicycle hotkeyed neuron set during the bootstrap) to update Sneed's Unicycle configuration.\n--------------------------------\n<br><br>\nThis proposal was created using [https://ic-toolkit.app](https://ic-toolkit.app)\n<br><br>\n"
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "31cb4dca8a8d1f1a5cd862314692dae8d7465ac604e64153e687a1688ff99912"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1783787817"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "5000"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1783611420"
+   }
+  },
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "342"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "ApplicationBusinessLogic": null
+    }
+   ],
+   "action": {
+    "__bigint": "4010"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "300"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1783447643"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "345600"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "1052299125"
+     },
+     "yes": {
+      "__bigint": "558792383315"
+     },
+     "total": {
+      "__bigint": "843428179549"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1783758753"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "86400"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1783611401"
+   },
+   "proposal": [
+    {
+     "url": "https://ic-unicycle.com/",
+     "title": "Make Snassy a Unicycle Admin for Sneed",
+     "action": [
+      {
+       "ExecuteGenericNervousSystemFunction": {
+        "function_id": {
+         "__bigint": "4010"
+        },
+        "payload": {
+         "__bytes": "4449444c016c018fd9aae201680100011d8b19bd9766940a718005e0cc0d78f9ae21072e25236bd1611ca17ac302"
+        }
+       }
+      }
+     ],
+     "summary": "This proposal makes Snassy a unicycle admin for Sneed (PID hqmm5-j4ldg-6zozu-ubjyy-abpaz-qgxr6-noeed-s4jjd-npiwc-hfbpl-bqe).\n\nUnicycle admins can choose which SNS controlled canisters are tracked by Unicycle and what their top-up thresholds are. Additonally, Unicycle admins can use the Unicycle interface to create sneed proposals (via the unicycle hotkeyed neuron set during the bootstrap) to update Sneed's Unicycle configuration.\n\n--\n--------------------------------\n<br><br>\nThis proposal was created using [https://ic-toolkit.app](https://ic-toolkit.app)\n<br><br>\n"
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "31cb4dca8a8d1f1a5cd862314692dae8d7465ac604e64153e687a1688ff99912"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1783793243"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "5000"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1783611407"
+   }
+  },
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "343"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "ApplicationBusinessLogic": null
+    }
+   ],
+   "action": {
+    "__bigint": "4007"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "300"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1783611839"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "345600"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "1112004304"
+     },
+     "yes": {
+      "__bigint": "457154508699"
+     },
+     "total": {
+      "__bigint": "843104078683"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1783947433"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "86400"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1783799816"
+   },
+   "proposal": [
+    {
+     "url": "",
+     "title": "Unicycle: update deposit auto-top-up config",
+     "action": [
+      {
+       "ExecuteGenericNervousSystemFunction": {
+        "function_id": {
+         "__bigint": "4007"
+        },
+        "payload": {
+         "__bytes": "4449444c016c03fcf9f2a5037ed69296e40a7daab58a950e7d01000180f28ba80980e497d012"
+        }
+       }
+      }
+     ],
+     "summary": "This proposal updates the Unicycle deposit auto-top-up configuration for this SNS.\n\nmin balance: not set → 25 ICP\ndeposit amount: not set → 50 ICP\ncycle usage report: not set → included\n\nProposed via Unicycle by admin y3lny-zqu4v-o2npf-wjghx-lhpkd-pmo7i-4kjl4-2srqb-mjid2-lz7rc-hae."
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "b8aea533371402076b6555759fb4236ecca165508de057f5ecdc6343e06ddf43"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1783957439"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "5000"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1783799819"
+   }
+  },
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "344"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "TreasuryAssetManagement": null
+    }
+   ],
+   "action": {
+    "__bigint": "9"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [
+    {
+     "TransferSnsTreasuryFunds": {
+      "valuation": [
+       {
+        "token": [
+         1
+        ],
+        "account": [
+         {
+          "owner": [
+           {
+            "__principal": "fi3zi-fyaaa-aaaaq-aachq-cai"
+           }
+          ],
+          "subaccount": []
+         }
+        ],
+        "valuation_factors": [
+         {
+          "xdrs_per_icp": [
+           {
+            "human_readable": [
+             "1.6539"
+            ]
+           }
+          ],
+          "icps_per_token": [
+           {
+            "human_readable": [
+             "1"
+            ]
+           }
+          ],
+          "tokens": [
+           {
+            "e8s": [
+             {
+              "__bigint": "737957881176"
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "timestamp_seconds": [
+         {
+          "__bigint": "1783801337"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "2000"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1783801337"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "432000"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "1392980677"
+     },
+     "yes": {
+      "__bigint": "591425620549"
+     },
+     "total": {
+      "__bigint": "839285750129"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1784220781"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "216000"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1784220774"
+   },
+   "proposal": [
+    {
+     "url": "",
+     "title": "Unicycle: top up SNS deposit",
+     "action": [
+      {
+       "TransferSnsTreasuryFunds": {
+        "from_treasury": 1,
+        "to_principal": [
+         {
+          "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+         }
+        ],
+        "to_subaccount": [
+         {
+          "subaccount": {
+           "__bytes": "0a000000000200008e0101000000000000000000000000000000000000000000"
+          }
+         }
+        ],
+        "memo": [],
+        "amount_e8s": {
+         "__bigint": "5000000000"
+        }
+       }
+      }
+     ],
+     "summary": "The SNS's Unicycle ICP deposit balance 0 ICP (0 e8s) is below the configured minimum 25 ICP (2_500_000_000 e8s). This proposal transfers 50 ICP (5_000_000_000 e8s) from the SNS treasury into the SNS's Unicycle deposit subaccount.\n\nCycle usage report (net cycle change per window; negative = consumed):\n- ok64y-uiaaa-aaaag-qdcbq-cai: balance 12.568571158069T (12_568_571_158_069 e12s)  1d=-0.001685993701T (1_685_993_701 e12s)  3d=-0.005575324087T (5_575_324_087 e12s)  7d=-0.009277609019T (9_277_609_019 e12s)  30d=-0.009277609019T (9_277_609_019 e12s)\n- i2s4q-syaaa-aaaan-qz4sq-cai: balance 0.039391176962T (39_391_176_962 e12s)  1d=-0.747058937767T (747_058_937_767 e12s)  3d=-0.052253074579T (52_253_074_579 e12s)  7d=-0.052253074579T (52_253_074_579 e12s)  30d=-0.052253074579T (52_253_074_579 e12s)\n- fp274-iaaaa-aaaaq-aacha-cai: balance 11.739331808878T (11_739_331_808_878 e12s)  1d=-0.442724912479T (442_724_912_479 e12s)  3d=-1.502590301559T (1_502_590_301_559 e12s)  7d=-3.263384915912T (3_263_384_915_912 e12s)  30d=-3.263384915912T (3_263_384_915_912 e12s)\n- fi3zi-fyaaa-aaaaq-aachq-cai: balance 10.841864298098T (10_841_864_298_098 e12s)  1d=-0.686283858235T (686_283_858_235 e12s)  3d=-2.275964186288T (2_275_964_186_288 e12s)  7d=-0.401285049257T (401_285_049_257 e12s)  30d=-0.401285049257T (401_285_049_257 e12s)\n- hvgxa-wqaaa-aaaaq-aacia-cai: balance 14.346452272039T (14_346_452_272_039 e12s)  1d=-0.426848156527T (426_848_156_527 e12s)  3d=+3.57287161951T (3_572_871_619_510 e12s)  7d=+1.114708860373T (1_114_708_860_373 e12s)  30d=+1.114708860373T (1_114_708_860_373 e12s)\n- h3e2i-naaaa-aaaaq-aacja-cai: balance 11.335024338674T (11_335_024_338_674 e12s)  1d=-0.449747167654T (449_747_167_654 e12s)  3d=-1.52700893694T (1_527_008_936_940 e12s)  7d=-3.266540585087T (3_266_540_585_087 e12s)  30d=-3.266540585087T (3_266_540_585_087 e12s)"
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "b8aea533371402076b6555759fb4236ecca165508de057f5ecdc6343e06ddf43"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1784233337"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "6700"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1784220777"
+   }
+  },
+  {
+   "id": [
+    {
+     "id": {
+      "__bigint": "345"
+     }
+    }
+   ],
+   "payload_text_rendering": [],
+   "topic": [
+    {
+     "TreasuryAssetManagement": null
+    }
+   ],
+   "action": {
+    "__bigint": "9"
+   },
+   "failure_reason": [],
+   "action_auxiliary": [
+    {
+     "TransferSnsTreasuryFunds": {
+      "valuation": [
+       {
+        "token": [
+         1
+        ],
+        "account": [
+         {
+          "owner": [
+           {
+            "__principal": "fi3zi-fyaaa-aaaaq-aachq-cai"
+           }
+          ],
+          "subaccount": []
+         }
+        ],
+        "valuation_factors": [
+         {
+          "xdrs_per_icp": [
+           {
+            "human_readable": [
+             "1.6326"
+            ]
+           }
+          ],
+          "icps_per_token": [
+           {
+            "human_readable": [
+             "1"
+            ]
+           }
+          ],
+          "tokens": [
+           {
+            "e8s": [
+             {
+              "__bigint": "737957881176"
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "timestamp_seconds": [
+         {
+          "__bigint": "1784161296"
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ],
+   "ballots": [],
+   "minimum_yes_proportion_of_total": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "2000"
+      }
+     ]
+    }
+   ],
+   "reward_event_round": {
+    "__bigint": "0"
+   },
+   "failed_timestamp_seconds": {
+    "__bigint": "0"
+   },
+   "reward_event_end_timestamp_seconds": [],
+   "proposal_creation_timestamp_seconds": {
+    "__bigint": "1784161296"
+   },
+   "initial_voting_period_seconds": {
+    "__bigint": "432000"
+   },
+   "reject_cost_e8s": {
+    "__bigint": "10000000"
+   },
+   "latest_tally": [
+    {
+     "no": {
+      "__bigint": "921537808"
+     },
+     "yes": {
+      "__bigint": "692662748096"
+     },
+     "total": {
+      "__bigint": "838774150372"
+     },
+     "timestamp_seconds": {
+      "__bigint": "1784557986"
+     }
+    }
+   ],
+   "wait_for_quiet_deadline_increase_seconds": {
+    "__bigint": "216000"
+   },
+   "decided_timestamp_seconds": {
+    "__bigint": "1784220557"
+   },
+   "proposal": [
+    {
+     "url": "",
+     "title": "Unicycle: top up SNS deposit",
+     "action": [
+      {
+       "TransferSnsTreasuryFunds": {
+        "from_treasury": 1,
+        "to_principal": [
+         {
+          "__principal": "2ccdl-vaaaa-aaaan-q6h5a-cai"
+         }
+        ],
+        "to_subaccount": [
+         {
+          "subaccount": {
+           "__bytes": "0a000000000200008e0101000000000000000000000000000000000000000000"
+          }
+         }
+        ],
+        "memo": [],
+        "amount_e8s": {
+         "__bigint": "5000000000"
+        }
+       }
+      }
+     ],
+     "summary": "The SNS's Unicycle ICP deposit balance 1 ICP (100_000_000 e8s) is below the configured minimum 25 ICP (2_500_000_000 e8s). This proposal transfers 50 ICP (5_000_000_000 e8s) from the SNS treasury into the SNS's Unicycle deposit subaccount.\n\nCycle usage report (net cycle change per window; negative = consumed):\n- 5ceyv-syaaa-aaaag-qc43q-cai: balance 62.200851798126T (62_200_851_798_126 e12s)  1d=-0.0240398895T (24_039_889_500 e12s)  3d=-0.038021551T (38_021_551_000 e12s)  7d=-0.038021551T (38_021_551_000 e12s)  30d=-0.038021551T (38_021_551_000 e12s)\n- ok64y-uiaaa-aaaag-qdcbq-cai: balance 12.560187469432T (12_560_187_469_432 e12s)  1d=-0.001666011459T (1_666_011_459 e12s)  3d=-0.005666232999T (5_666_232_999 e12s)  7d=-0.013614857557T (13_614_857_557 e12s)  30d=-0.017661297656T (17_661_297_656 e12s)\n- fp274-iaaaa-aaaaq-aacha-cai: balance 14.514219167181T (14_514_219_167_181 e12s)  1d=-0.445829907827T (445_829_907_827 e12s)  3d=+3.484323079833T (3_484_323_079_833 e12s)  7d=+1.3601620028T (1_360_162_002_800 e12s)  30d=-0.488497557609T (488_497_557_609 e12s)\n- fi3zi-fyaaa-aaaaq-aachq-cai: balance 12.987931432162T (12_987_931_432_162 e12s)  1d=-0.554244888604T (554_244_888_604 e12s)  3d=-1.922665581666T (1_922_665_581_666 e12s)  7d=+0.005150759318T (5_150_759_318 e12s)  30d=+1.744782084807T (1_744_782_084_807 e12s)\n- hvgxa-wqaaa-aaaaq-aacia-cai: balance 12.343163180395T (12_343_163_180_395 e12s)  1d=-0.41079754244T (410_797_542_440 e12s)  3d=-1.363807791167T (1_363_807_791_167 e12s)  7d=+1.646780224533T (1_646_780_224_533 e12s)  30d=-0.888580231271T (888_580_231_271 e12s)\n- h3e2i-naaaa-aaaaq-aacja-cai: balance 14.140451490573T (14_140_451_490_573 e12s)  1d=-0.460221526554T (460_221_526_554 e12s)  3d=+3.489139944501T (3_489_139_944_501 e12s)  7d=+1.36083473388T (1_360_834_733_880 e12s)  30d=-0.461113433188T (461_113_433_188 e12s)\n- h4f44-ayaaa-aaaaq-aacjq-cai: balance 55.664684588997T (55_664_684_588_997 e12s)  1d=-0.012119692015T (12_119_692_015 e12s)  3d=-0.019318306162T (19_318_306_162 e12s)  7d=-0.019318306162T (19_318_306_162 e12s)  30d=-0.019318306162T (19_318_306_162 e12s)"
+    }
+   ],
+   "proposer": [
+    {
+     "id": {
+      "__bytes": "b8aea533371402076b6555759fb4236ecca165508de057f5ecdc6343e06ddf43"
+     }
+    }
+   ],
+   "wait_for_quiet_state": [
+    {
+     "current_deadline_timestamp_seconds": {
+      "__bigint": "1784593296"
+     }
+    }
+   ],
+   "minimum_yes_proportion_of_exercised": [
+    {
+     "basis_points": [
+      {
+       "__bigint": "6700"
+      }
+     ]
+    }
+   ],
+   "is_eligible_for_rewards": true,
+   "executed_timestamp_seconds": {
+    "__bigint": "1784220560"
+   }
+  }
+ ]
+}
