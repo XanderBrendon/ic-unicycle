@@ -11,7 +11,10 @@ export interface SnsInfos {
 
 // Cache-first name/governance lookup for every administered root. `refresh`
 // forces a refetch for one root (the SNS page's refresh button).
-export function useSnsInfos(roots: Principal[] | null): SnsInfos {
+// `governanceByRoot` (from `getOnboardedSnsRoots`) saves the root-canister hop
+// for the roots it covers; roots it doesn't — user-tracked SNSes that were
+// never onboarded — fall back to asking the SNS root canister.
+export function useSnsInfos(roots: Principal[] | null, governanceByRoot: Record<string, Principal>): SnsInfos {
   const [infos, setInfos] = useState<Record<string, SnsInfo | undefined>>({});
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
@@ -29,7 +32,7 @@ export function useSnsInfos(roots: Principal[] | null): SnsInfos {
     }
     inFlight.current.add(key);
     setRefreshing((m) => ({ ...m, [key]: true }));
-    fetchSnsInfo(root)
+    fetchSnsInfo(root, governanceByRoot[key])
       .then((info) => {
         saveSnsInfo(info);
         setInfos((m) => ({ ...m, [key]: info }));
@@ -40,7 +43,7 @@ export function useSnsInfos(roots: Principal[] | null): SnsInfos {
         inFlight.current.delete(key);
         setRefreshing((m) => ({ ...m, [key]: false }));
       });
-  }, []);
+  }, [governanceByRoot]);
 
   useEffect(() => {
     for (const root of roots ?? []) load(root, false);

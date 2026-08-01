@@ -124,6 +124,14 @@ module {
     governance_canister_id : ?Principal;
   };
 
+  // One entry of `getOnboardedSnsRoots`: an onboarded SNS root paired with its
+  // governance canister, read back out of the `DeployedSns` index. `governance`
+  // is optional only because the index is a cache — see the method comment.
+  public type OnboardedSns = {
+    root : Principal;
+    governance : ?Principal;
+  };
+
   // SNS root `list_sns_canisters` response — a query twin of the summary the
   // upsert verification already reads, listing ids regardless of status. Only
   // fields we read are typed; Candid record subtyping drops any extras. The

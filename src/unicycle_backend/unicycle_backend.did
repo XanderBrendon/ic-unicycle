@@ -116,7 +116,7 @@ type Unicycle =
    getMyLoyaltyStatus: () -> (MyLoyaltyStatus) query;
    getMySnsAdminRoots: () -> (vec principal) query;
    getMyTrackedSnsRoots: () -> (vec principal) query;
-   getOnboardedSnsRoots: () -> (vec principal) query;
+   getOnboardedSnsRoots: () -> (vec OnboardedSns) query;
    getPrimaryAdmin: () -> (opt principal) query;
    getSnsAdmins: (governance: principal) -> (opt vec principal);
    getSnsDepositAccount: (governance: principal) -> (opt Account);
@@ -552,6 +552,11 @@ type RecordCyclesError =
    anonymous;
    notTracked;
    rateLimited;
+ };
+type OnboardedSns =
+ record {
+   governance: opt principal;
+   root: principal;
  };
 type MyLoyaltyStatus =
  record {

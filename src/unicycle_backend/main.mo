@@ -3748,8 +3748,22 @@ persistent actor class Unicycle(
   // Every SNS root onboarded to Unicycle — the frontend's "SNS DAO" nav section
   // reads this so any signed-in user can browse an onboarded SNS's cycle data
   // read-only. Same membership test `requireSnsReadable` gates public reads on.
-  public query func getOnboardedSnsRoots() : async [Principal] {
-    snsProposalNeuron.keys().toArray();
+  // Each root carries its governance canister, the reverse of the
+  // `snsRootByGovernance` index, so the SNS page can address governance without
+  // a round trip to the SNS root canister's `list_sns_canisters`. `governance`
+  // is `?` because the index is a rebuildable cache, but a miss is unreachable
+  // for these roots: onboarding runs `snsSetProposalNeuron` from the governance
+  // caller through `resolveSnsRoot`, which is this same index — an entry here
+  // could not exist without one there. Stays a `query`: unlike
+  // `snsGovernanceForRoot`, it never refreshes the registry on a miss.
+  public query func getOnboardedSnsRoots() : async [Types.OnboardedSns] {
+    let governanceByRoot = Map.empty<Principal, Principal>();
+    for ((governance, root) in snsRootByGovernance.entries()) {
+      governanceByRoot.add(root, governance);
+    };
+    snsProposalNeuron.keys()
+      .map(func(root : Principal) : Types.OnboardedSns { { root; governance = governanceByRoot.get(root) } })
+      .toArray();
   };
 
   // Root-keyed twin of `getSnsProposalNeuron`, which takes a governance

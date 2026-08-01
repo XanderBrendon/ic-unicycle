@@ -41,12 +41,18 @@ export function saveSnsInfo(info: SnsInfo): void {
   localStorage.setItem(snsInfoKey(info.root), JSON.stringify(info));
 }
 
-export async function fetchSnsInfo(root: Principal): Promise<SnsInfo> {
+// `known` short-circuits the root-canister hop for roots the backend already
+// resolved (onboarded SNSes); without it the governance id comes from the SNS
+// itself, which is the only source for a root the backend has not indexed.
+export async function fetchSnsInfo(root: Principal, known?: Principal): Promise<SnsInfo> {
   const agent = buildAgent(); // anonymous — queries only
-  const rootCanister = SnsRootCanister.create({ canisterId: root, agent });
-  const canisters = await rootCanister.listSnsCanisters({ certified: false });
-  const governance = canisters.governance[0];
-  if (!governance) throw new Error('SNS root did not report a governance canister');
+  let governance = known;
+  if (!governance) {
+    const rootCanister = SnsRootCanister.create({ canisterId: root, agent });
+    const canisters = await rootCanister.listSnsCanisters({ certified: false });
+    governance = canisters.governance[0];
+    if (!governance) throw new Error('SNS root did not report a governance canister');
+  }
   const gov = SnsGovernanceCanister.create({ canisterId: governance, agent });
   const metadata = await gov.metadata({ certified: false });
   return {

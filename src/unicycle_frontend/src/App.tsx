@@ -50,7 +50,7 @@ export function App() {
   const { isAdmin, loading: adminLoading } = useIsAdmin(identity);
   const { roots: snsAdminRoots } = useMySnsAdminRoots(identity);
   const { roots: trackedSnsRoots, refresh: refreshTrackedSns } = useMyTrackedSnsRoots(identity);
-  const { roots: onboardedSnsRoots } = useOnboardedSnsRoots(identity);
+  const { roots: onboardedSnsRoots, governance: onboardedGovernance } = useOnboardedSnsRoots(identity);
   const allSnsRoots = useMemo(() => {
     const seen = new Set<string>();
     const out: Principal[] = [];
@@ -62,7 +62,7 @@ export function App() {
     }
     return out;
   }, [snsAdminRoots, trackedSnsRoots, onboardedSnsRoots]);
-  const snsInfos = useSnsInfos(allSnsRoots);
+  const snsInfos = useSnsInfos(allSnsRoots, onboardedGovernance);
 
   // An SNS page is read-only unless the identity is one of that SNS's admins.
   // `snsAdminRoots === null` (still loading) reads as read-only, so the admin
@@ -318,6 +318,7 @@ export function App() {
                 key={route.root.toText()}
                 identity={identity}
                 root={route.root}
+                knownGovernance={onboardedGovernance[route.root.toText()]}
                 info={snsInfos.infos[route.root.toText()]}
                 infoRefreshing={snsInfos.refreshing[route.root.toText()] ?? false}
                 infoError={snsInfos.errors[route.root.toText()] ?? null}

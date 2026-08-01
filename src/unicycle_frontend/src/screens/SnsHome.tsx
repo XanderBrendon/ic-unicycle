@@ -19,6 +19,9 @@ import { SnsSettings } from './SnsSettings';
 export interface SnsHomeProps {
   identity: Identity;
   root: Principal;
+  // From `getOnboardedSnsRoots`, so it is here before the metadata fetch that
+  // fills `info`. Absent for an administered root that never onboarded.
+  knownGovernance: Principal | undefined;
   info: SnsInfo | undefined;
   infoRefreshing: boolean;
   infoError: string | null;
@@ -32,7 +35,7 @@ export interface SnsHomeProps {
 }
 
 export function SnsHome({
-  identity, root, info, infoRefreshing, infoError, onRefreshInfo, tab, onTabChange, onOpen, readOnly,
+  identity, root, knownGovernance, info, infoRefreshing, infoError, onRefreshInfo, tab, onTabChange, onOpen, readOnly,
 }: SnsHomeProps) {
   const fleet = useFleet(identity, root);
   const deposit = useDepositBalances(identity, root); // the SNS root's deposit subaccount
@@ -41,13 +44,14 @@ export function SnsHome({
   const [addOpen, setAddOpen] = useState(false);
   const [groupEditOpen, setGroupEditOpen] = useState(false);
   const governance = useMemo(() => {
+    if (knownGovernance) return knownGovernance;
     if (!info) return null;
     try {
       return Principal.fromText(info.governance);
     } catch {
       return null;
     }
-  }, [info?.governance]);
+  }, [knownGovernance, info?.governance]);
 
   return (
     <>
