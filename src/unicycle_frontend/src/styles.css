@@ -332,6 +332,13 @@ select option { background: var(--elevated); color: var(--text); }
 .tbl tbody tr:last-child td { border-bottom: none; }
 .tbl tr.clickable { cursor: pointer; }
 .tbl .num { text-align: right; }
+/* the fleet table carries 11 columns — tighten its gutters so they fit beside
+   the activity rail without wrapping cells. Scoped: other tables keep --pad. */
+.tbl-fleet th, .tbl-fleet td { padding-inline: 11px; }
+/* let the name column absorb the remaining space and ellipsize instead of
+   wrapping a long nickname across three lines. max-width:0 + a % width is what
+   makes text-overflow work inside an auto-layout table. */
+.tbl-fleet .fleet-name { width: 24%; max-width: 0; }
 td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text); }
 
 /* fuel bar */
@@ -531,7 +538,7 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 .fc-title { font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .fc-title .ellipsis { min-width: 0; }
 .fc-id { font-size: 10.5px; }
-.fc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.fc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .fc-stats > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .fc-stats label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
 .fc-stats .v { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 600; white-space: nowrap; }

@@ -183,6 +183,12 @@ export function canisterBurnPerDayCycles(
   return totalDrop / spanDays;
 }
 
+// Sane horizon cap for burn-based projections. A >100y estimate is "effectively
+// stable", and projecting one onto a calendar date overflows JS's max Date
+// (~273k years from epoch), which makes fmtDate throw "Invalid time value".
+// Beyond the cap, callers collapse to the same display as a zero-burn subject.
+export const MAX_RUNWAY_DAYS = 36_500; // 100 years
+
 // Estimated days until `cur` decays to the top-up threshold `min` at
 // `burnPerDayCycles`. 0 if already at/below `min`; null when not estimable (no
 // balance, or no positive burn observed yet — including a null/"measuring" burn
