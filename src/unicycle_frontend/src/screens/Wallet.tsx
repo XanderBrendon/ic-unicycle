@@ -82,7 +82,10 @@ function TokenRow({
       >
         {token.symbol.slice(0, 2)}
       </div>
-      <div style={{ minWidth: 0, flex: 1 }}>
+      {/* no min-width:0 here: the symbol/name never ellipsizes, so letting this
+          column shrink past its text only made the name overflow the balance.
+          Its min-content is what tells the wrapping row to break instead. */}
+      <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 600, fontSize: 13 }}>{token.symbol}</span>
           {!builtin && <span className="badge muted" style={{ height: 16, fontSize: 9 }}>custom</span>}
@@ -339,7 +342,7 @@ function DepositHistoryPanel({
         <>
           {series && series.length >= 2 && (
             <div style={{ padding: 'var(--pad)', borderBottom: '1px solid var(--border)' }}>
-              <Sparkline data={series.map((p) => p.bal)} w={420} h={60} fill />
+              <Sparkline data={series.map((p) => p.bal)} w={420} h={60} fill fluid />
             </div>
           )}
           <div>

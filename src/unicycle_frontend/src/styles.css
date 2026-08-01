@@ -461,6 +461,16 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 .hist-table-wrap { overflow-y: auto; overflow-x: hidden; }
 .fleet-toolbar .input-suffix { width: 218px; margin-left: auto; }
 
+/* ---- Wallet token rows wrap their actions at every width ----
+   A row is icon + name + balance + buttons on one line. None of those shrink:
+   the balance is a ledger amount, so its width is unbounded, and the buttons
+   are nowrap. That gave the single-line row a min-content floor wider than a
+   column of the two-up wallet layout, which scrolled the page sideways.
+   Wrapping collapses the floor to the row's widest single item, and the buttons
+   only drop to a second line once they genuinely stop fitting. */
+.token-row { flex-wrap: wrap; }
+.token-row .row-actions { margin-left: auto; }
+
 /* mobile-only affordances, hidden on desktop */
 .nav-toggle, .brand-close { display: none; }
 /* auto-fill rather than a single column: the cards now stand in for the table
@@ -556,10 +566,6 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
      nowrap text (pids, amounts, badges) truncates instead of forcing overflow */
   .page .grid > *, .page .fleet-layout > *, .page .kpi-strip > *,
   .page .vstack > *, .page .panel, .fc-name, .fc-title { min-width: 0; }
-
-  /* wallet token rows wrap their action buttons */
-  .token-row { flex-wrap: wrap; }
-  .token-row .row-actions { margin-left: auto; }
 
   /* toasts span the width */
   .toasts { left: 12px; right: 12px; }

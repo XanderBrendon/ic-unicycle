@@ -215,6 +215,10 @@ export function FuelBar({ cur, min, status, width = 120 }: { cur: bigint | null;
   );
 }
 
+// `fluid` renders at width:100% (like AreaChart/MiniBars) rather than a fixed
+// `w` px, for callers that sit in a panel rather than a table cell — `w` then
+// only sets the viewBox resolution. A fixed `w` is a hard floor on the
+// container's min-content width, which overflows narrow layouts.
 export function Sparkline({
   data,
   w = 120,
@@ -222,6 +226,7 @@ export function Sparkline({
   color = 'var(--accent)',
   fill = false,
   strokeW = 1.5,
+  fluid = false,
 }: {
   data: number[];
   w?: number;
@@ -229,9 +234,10 @@ export function Sparkline({
   color?: string;
   fill?: boolean;
   strokeW?: number;
+  fluid?: boolean;
 }) {
   if (data.length < 2) {
-    return <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }} preserveAspectRatio="none" />;
+    return <svg width={fluid ? '100%' : w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }} preserveAspectRatio="none" />;
   }
   const min = Math.min(...data);
   const max = Math.max(...data);
@@ -240,7 +246,7 @@ export function Sparkline({
   const line = pts.map((p) => p.join(',')).join(' ');
   const area = `${pts[0][0]},${h} ${line} ${pts[pts.length - 1][0]},${h}`;
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', overflow: 'visible' }} preserveAspectRatio="none">
+    <svg width={fluid ? '100%' : w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', overflow: 'visible' }} preserveAspectRatio="none">
       {fill && <polygon points={area} fill={color} opacity="0.12" />}
       <polyline
         points={line}
