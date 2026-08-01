@@ -41,3 +41,4 @@ src/unicycle_frontend/src/bindings/
 # Claude Code per-user permissions
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+.claude/skills/caffeine-app/

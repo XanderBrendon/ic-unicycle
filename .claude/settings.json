@@ -2,6 +2,9 @@
   "hooks": {
     "SessionStart": [
       {
+        "permissions": {
+          "deny": ["Skill(caffeine-app)"]
+        },
         "hooks": [
           { "type": "command", "command": "bash .claude/sync-ic-skills.sh" }
         ]
