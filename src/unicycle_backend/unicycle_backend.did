@@ -125,6 +125,7 @@ type Unicycle =
    getSnsDrainAlertConfig: (governance: principal) ->
     (opt SnsSetDrainAlertConfigArg);
    getSnsProposalNeuron: (governance: principal) -> (opt blob);
+   getSnsProposalNeuronByRoot: (root: principal) -> (opt blob) query;
    getSnsReportConfig: (governance: principal) -> (opt SnsSetReportConfigArg);
    getSnsWasmCanister: () -> (principal) query;
    getSnsWithdrawDestination: (governance: principal) ->

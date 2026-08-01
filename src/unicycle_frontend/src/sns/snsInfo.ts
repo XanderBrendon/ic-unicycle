@@ -19,6 +19,11 @@ export const snsInfoKey = (root: string): string => `unicycle:snsInfo:${root}`;
 export const snsProposalUrl = (root: string, id: bigint): string =>
   `https://dashboard.internetcomputer.org/sns/${root}/proposal/${id.toString()}`;
 
+// The NNS app's SNS proposal view: `u` selects the SNS by root, `proposal` the
+// governance proposal id. Always mainnet — a local SNS has no NNS app to open.
+export const nnsProposalUrl = (root: string, id: bigint): string =>
+  `https://nns.ic0.app/proposal/?u=${root}&proposal=${id.toString()}`;
+
 export function loadSnsInfo(root: string): SnsInfo | null {
   const raw = localStorage.getItem(snsInfoKey(root));
   if (!raw) return null;

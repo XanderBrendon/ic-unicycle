@@ -6,7 +6,7 @@ import { Principal } from '@icp-sdk/core/principal';
 
 export type Page = 'overview' | 'wallet' | 'admin';
 export type AdminTab = 'overview' | 'trends' | 'logs';
-export type SnsTab = 'overview' | 'settings';
+export type SnsTab = 'overview' | 'proposals' | 'settings';
 
 export type Route =
   | { page: 'overview' }
@@ -51,7 +51,8 @@ export function parseHash(rawHash: string): Route {
           return { page: 'sns', root, tab: 'overview' };
         }
       }
-      return { page: 'sns', root, tab: segments[2] === 'settings' ? 'settings' : 'overview' };
+      const tab = segments[2];
+      return { page: 'sns', root, tab: tab === 'settings' || tab === 'proposals' ? tab : 'overview' };
     }
     case 'blackholed':
       return { page: 'blackholed' };
@@ -79,7 +80,7 @@ export function routeToHash(route: Route): string {
     case 'sns':
       return route.tab === 'overview'
         ? `#/sns/${route.root.toText()}`
-        : `#/sns/${route.root.toText()}/settings`;
+        : `#/sns/${route.root.toText()}/${route.tab}`;
     case 'snsCanister':
       return `#/sns/${route.root.toText()}/canister/${route.id.toText()}`;
     case 'trackedSns':

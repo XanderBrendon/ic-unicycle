@@ -3752,6 +3752,17 @@ persistent actor class Unicycle(
     snsProposalNeuron.keys().toArray();
   };
 
+  // Root-keyed twin of `getSnsProposalNeuron`, which takes a governance
+  // principal and must `await resolveSnsRoot` to get here. A caller that
+  // already holds the root needs no resolution, so this stays a `query` — the
+  // Proposals tab reads it to badge proposals submitted by this neuron.
+  // Exposes nothing new: `getOnboardedSnsRoots` is already a public query over
+  // this map's keys, and a neuron id is public governance data (every proposal
+  // it submits carries it in `proposer`).
+  public query func getSnsProposalNeuronByRoot(root : Principal) : async ?Blob {
+    snsProposalNeuron.get(root);
+  };
+
   // ---------------------------------------------------------------------------
   // User-tracked SNSes: a signed-in user picks SNSes to help fund from their
   // own deposit subaccount. Tracking an SNS only creates the association (and
@@ -5374,6 +5385,7 @@ persistent actor class Unicycle(
         #getSnsDepositConfig : Any;
         #getSnsDrainAlertConfig : Any;
         #getSnsProposalNeuron : Any;
+        #getSnsProposalNeuronByRoot : Any;
         #getSnsReportConfig : Any;
         #getSnsWasmCanister : Any;
         #getSnsWithdrawDestination : Any;

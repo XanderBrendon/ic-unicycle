@@ -13,6 +13,7 @@ import { fmtPid } from '../ui/format';
 import type { SnsTab } from '../router';
 import type { SnsInfo } from '../sns/snsInfo';
 import { FleetKpiStrip, FleetDashboard, OverviewLoading, OverviewEmpty } from './Overview';
+import { SnsProposals } from './SnsProposals';
 import { SnsSettings } from './SnsSettings';
 
 export interface SnsHomeProps {
@@ -75,6 +76,7 @@ export function SnsHome({
         <Tabs
           tabs={[
             { id: 'overview', label: 'Overview' },
+            { id: 'proposals', label: 'Proposals' },
             { id: 'settings', label: 'Settings' },
           ]}
           active={tab}
@@ -105,6 +107,9 @@ export function SnsHome({
             />
           </div>
         ))}
+
+      {/* Governance data, public either way — no readOnly branch. */}
+      {tab === 'proposals' && <SnsProposals identity={identity} root={root} governance={governance} />}
 
       {tab === 'settings' && (
         <SnsSettings identity={identity} root={root} governance={governance} readOnly={readOnly} />
