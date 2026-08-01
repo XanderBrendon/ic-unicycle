@@ -61,7 +61,8 @@ export function SnsProposals({ identity, root, governance }: SnsProposalsProps) 
             <table className="tbl">
               <thead>
                 <tr>
-                  <th className="num" style={{ width: 90 }}>#</th>
+                  <th style={{ width: 46 }}></th>
+                  <th className="num" style={{ width: 70 }}>#</th>
                   <th>What it does</th>
                   <th style={{ width: 110 }}>Status</th>
                   <th style={{ width: 110 }}>Proposed</th>
@@ -71,14 +72,15 @@ export function SnsProposals({ identity, root, governance }: SnsProposalsProps) 
               <tbody>
                 {proposals.map((p) => (
                   <tr key={p.id.toString()}>
-                    <td className="num mono">
-                      {p.id.toString()}
+                    <td>
                       {p.byUnicycle && (
-                        <div style={{ marginTop: 3 }}>
-                          <span className="badge ok">Unicycle</span>
-                        </div>
+                        // Icon-only, so it carries the tooltip the word used to be.
+                        <span className="badge ok" title="Proposed through this SNS's Unicycle neuron">
+                          <Icon name="wheel" size={12} />
+                        </span>
                       )}
                     </td>
+                    <td className="num mono">{p.id.toString()}</td>
                     <td style={{ whiteSpace: 'normal', lineHeight: 1.45 }}>{p.description}</td>
                     <td>
                       <span className={`badge ${OUTCOME[p.outcome].cls}`}>{OUTCOME[p.outcome].label}</span>
