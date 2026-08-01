@@ -79,7 +79,6 @@ function KpiCell({
   status,
   accent,
   children,
-  last,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -89,13 +88,11 @@ function KpiCell({
   status?: Status;
   accent?: boolean;
   children?: ReactNode;
-  last?: boolean;
 }) {
   return (
     <div
       style={{
         padding: 'var(--pad)',
-        borderRight: last ? 'none' : '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -131,20 +128,17 @@ function TripleCell({
   stats,
   sub,
   children,
-  last,
 }: {
   label: ReactNode;
   icon?: ReactNode;
   stats: [TripleStat, TripleStat, TripleStat];
   sub?: ReactNode;
   children?: ReactNode;
-  last?: boolean;
 }) {
   return (
     <div
       style={{
         padding: 'var(--pad)',
-        borderRight: last ? 'none' : '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -638,7 +632,7 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
 
   const c = fleet.counts;
   return (
-    <div className="panel kpi-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', overflow: 'hidden' }}>
+    <div className="panel kpi-strip" style={{ overflow: 'hidden' }}>
       <TripleCell
         label="Deposit balance"
         icon={<Icon name="wallet" size={12} />}
@@ -681,7 +675,6 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
       <TripleCell
         label="Topped up"
         icon={<Icon name="bolt" size={12} />}
-        last
         stats={[
           { value: <TC raw={fleet.toppedUp24Cycles} />, caption: '24h' },
           { value: <TC raw={fleet.toppedUp7dCycles} />, caption: '7d' },
@@ -762,7 +755,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
 
   const c = fleet.counts;
   return (
-    <div className="grid fleet-layout" style={{ gridTemplateColumns: '1fr 340px', alignItems: 'start' }}>
+    <div className="grid fleet-layout" style={{ alignItems: 'start' }}>
       <Panel
         flush
         title="Fleet"
@@ -816,7 +809,7 @@ export function FleetDashboard({ fleet, onOpen, onAdd, onAddSns, onGroupEdit, sc
           }}
         >
           <StatusLegend counts={c} active={filter} onPick={setFilter} />
-          <div className="input-suffix" style={{ marginLeft: 'auto', width: 218 }}>
+          <div className="input-suffix">
             <input
               className="input mono"
               placeholder="search name or id…"

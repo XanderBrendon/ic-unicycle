@@ -603,7 +603,7 @@ export function Wallet({ identity }: WalletProps) {
       <Panel>
         <FlowDiagram />
       </Panel>
-      <div className="grid two-col" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid two-col" style={{ alignItems: 'start' }}>
         <Panel
           flush
           title="Local wallet"

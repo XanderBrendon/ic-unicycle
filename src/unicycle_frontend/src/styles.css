@@ -27,6 +27,11 @@
   --radius: 4px;
   --radius-lg: 7px;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* Global motion multiplier. Every duration in this file is
+     calc(<time> * var(--motion)), so the prefers-reduced-motion block at the
+     bottom disables animation by flipping this one token to 0 — no !important,
+     no specificity contest. Keep new durations on the same pattern. */
+  --motion: 1;
 
   /* density (overridden by [data-density]) */
   --row-h: 40px;
@@ -149,7 +154,7 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
   padding: 8px 10px; border-radius: var(--radius);
   color: var(--text-1); font-size: 13px; font-weight: 500;
   border: 1px solid transparent;
-  transition: background .14s var(--ease), color .14s var(--ease);
+  transition: background calc(.14s * var(--motion)) var(--ease), color calc(.14s * var(--motion)) var(--ease);
   position: relative;
 }
 .nav-item:hover { background: var(--panel); color: var(--text); }
@@ -190,7 +195,7 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
   width: 300px; padding: 4px;
   background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow); animation: pop .18s var(--ease);
+  box-shadow: var(--shadow); animation: pop calc(.18s * var(--motion)) var(--ease);
 }
 .identity-sec { padding: 8px; }
 .identity-sec + .identity-sec { border-top: 1px solid var(--border); }
@@ -256,7 +261,7 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
   height: 32px; padding: 0 12px; border-radius: var(--radius);
   border: 1px solid var(--border-2); background: var(--panel-2); color: var(--text);
   font-size: 12.5px; font-weight: 500; white-space: nowrap;
-  transition: background .14s var(--ease), border-color .14s var(--ease), transform .04s;
+  transition: background calc(.14s * var(--motion)) var(--ease), border-color calc(.14s * var(--motion)) var(--ease), transform calc(.04s * var(--motion));
 }
 .btn:hover { background: var(--elevated); border-color: var(--border-2); }
 .btn:active { transform: translateY(1px); }
@@ -274,10 +279,10 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
 .iconbtn {
   width: 32px; height: 32px; flex: none; display: grid; place-items: center;
   border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel-2); color: var(--text-1);
-  transition: background .14s, color .14s, border-color .14s;
+  transition: background calc(.14s * var(--motion)), color calc(.14s * var(--motion)), border-color calc(.14s * var(--motion));
 }
 .iconbtn:hover { background: var(--elevated); color: var(--text); }
-.extlink { color: var(--text-2); transition: color .14s; }
+.extlink { color: var(--text-2); transition: color calc(.14s * var(--motion)); }
 .extlink:hover { color: var(--accent-ink); }
 
 /* chips / tags / badges */
@@ -303,7 +308,7 @@ code, .mono, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; font
 .dot.ok { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in oklch, var(--warn) 20%, transparent); }
 .dot.crit { background: var(--crit); box-shadow: 0 0 0 3px color-mix(in oklch, var(--crit) 20%, transparent); }
-.dot.pulse { animation: pulse 2s var(--ease) infinite; }
+.dot.pulse { animation: pulse calc(2s * var(--motion)) var(--ease) infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* key-value & stat */
@@ -327,7 +332,7 @@ select option { background: var(--elevated); color: var(--text); }
   padding: 9px var(--pad); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .tbl td { padding: 0 var(--pad); height: var(--row-h); border-bottom: 1px solid var(--border); font-size: 12.5px; }
-.tbl tbody tr { transition: background .12s; }
+.tbl tbody tr { transition: background calc(.12s * var(--motion)); }
 .tbl tbody tr:hover { background: var(--panel-2); }
 .tbl tbody tr:last-child td { border-bottom: none; }
 .tbl tr.clickable { cursor: pointer; }
@@ -355,7 +360,7 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 .input {
   height: 36px; padding: 0 11px; border-radius: var(--radius);
   background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text);
-  font-size: 13px; width: 100%; transition: border-color .14s, box-shadow .14s;
+  font-size: 13px; width: 100%; transition: border-color calc(.14s * var(--motion)), box-shadow calc(.14s * var(--motion));
 }
 .input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
 .input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -372,16 +377,16 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 .seg button {
   height: 26px; padding: 0 11px; border-radius: 3px; border: none; background: transparent;
   color: var(--text-1); font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px;
-  transition: background .14s, color .14s;
+  transition: background calc(.14s * var(--motion)), color calc(.14s * var(--motion));
 }
 .seg button:hover { color: var(--text); }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 .seg button.on .ico { color: var(--accent-ink); }
 
 /* toggle switch */
-.switch { width: 38px; height: 22px; border-radius: 11px; background: var(--border-2); border: none; position: relative; transition: background .16s; flex: none; }
+.switch { width: 38px; height: 22px; border-radius: 11px; background: var(--border-2); border: none; position: relative; transition: background calc(.16s * var(--motion)); flex: none; }
 .switch.on { background: var(--accent); }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: white; transition: transform .16s var(--ease); }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: white; transition: transform calc(.16s * var(--motion)) var(--ease); }
 .switch.on::after { transform: translateX(16px); }
 
 /* grids */
@@ -397,18 +402,18 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 
 /* terminal accents */
 .prompt::before { content: '> '; color: var(--accent-ink); font-family: 'JetBrains Mono', monospace; }
-.cursor { display: inline-block; width: 7px; height: 1.05em; background: var(--accent); vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
+.cursor { display: inline-block; width: 7px; height: 1.05em; background: var(--accent); vertical-align: text-bottom; animation: blink calc(1.1s * var(--motion)) steps(1) infinite; }
 @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
 
 /* modal */
 .scrim { position: fixed; inset: 0; background: color-mix(in oklch, var(--bg-2) 72%, transparent); backdrop-filter: blur(3px); z-index: 60; display: grid; place-items: center; padding: 24px; }
-.modal { width: 100%; max-width: 460px; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--shadow); animation: pop .18s var(--ease); }
+.modal { width: 100%; max-width: 460px; max-height: calc(100dvh - 48px); display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg); box-shadow: var(--shadow); animation: pop calc(.18s * var(--motion)) var(--ease); }
 @keyframes fade { from { opacity: 0.3; } }
 @keyframes pop { from { transform: translateY(10px) scale(0.985); } }
 
 /* toast */
 .toasts { position: fixed; bottom: 18px; right: 18px; z-index: 80; display: flex; flex-direction: column; gap: 8px; }
-.toast { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: var(--radius); background: var(--elevated); border: 1px solid var(--border-2); box-shadow: var(--shadow); font-size: 12.5px; animation: slideIn .2s var(--ease); max-width: 340px; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: var(--radius); background: var(--elevated); border: 1px solid var(--border-2); box-shadow: var(--shadow); font-size: 12.5px; animation: slideIn calc(.2s * var(--motion)) var(--ease); max-width: 340px; }
 .toast.sticky { align-items: flex-start; }
 .toast-close { flex: none; align-self: flex-start; margin-left: auto; background: none; border: 0; padding: 0 2px; color: var(--text-2); font-size: 16px; line-height: 1; cursor: pointer; }
 .toast-close:hover { color: var(--text); }
@@ -419,25 +424,42 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 .nowrap { white-space: nowrap; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clickable { cursor: pointer; }
-.fade-up { animation: fadeUp .3s var(--ease); }
+.fade-up { animation: fadeUp calc(.3s * var(--motion)) var(--ease); }
 @keyframes fadeUp { from { opacity: 0.4; transform: translateY(7px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  :root { --motion: 0; }
 }
 
 /* ============================================================
-   MOBILE RESPONSIVE — append verbatim to the END of
-   src/unicycle_frontend/src/styles.css
+   RESPONSIVE LAYOUT
    ------------------------------------------------------------
-   Desktop rules above are untouched. Everything here only
-   activates at narrow widths; the inline grid-templates on the
-   React components stay as the desktop source of truth and are
-   overridden here with !important below each breakpoint.
-   Every token used (--pad, --gap, --border, --ease, --shadow,
-   --panel-2, --bg-2, --accent-ink, radius, JetBrains Mono) is
-   already defined in your :root — no new tokens required.
+   The desktop templates below are declared as classes rather than
+   inline style props on the React components, so the breakpoint
+   overrides that follow win on ordinary source order. Keep them
+   that way: an inline style would beat every selector and drag
+   !important back into this file.
    ============================================================ */
+
+/* ---- Desktop layout templates (overridden per breakpoint below) ---- */
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); }
+/* KPI cells are separated by right borders; the last one closes the strip. */
+.kpi-strip > * { border-right: 1px solid var(--border); }
+.kpi-strip > *:last-child { border-right: none; }
+
+.fleet-layout { grid-template-columns: 1fr 340px; }
+.detail-grid { grid-template-columns: 300px 1fr; }
+.two-col { grid-template-columns: 1fr 1fr; }
+
+.rg6, .rg5, .rg4, .rg3, .rg2 { display: grid; }
+.rg6 { grid-template-columns: repeat(6, 1fr); }
+.rg5 { grid-template-columns: repeat(5, 1fr); }
+.rg4 { grid-template-columns: repeat(4, 1fr); }
+.rg3 { grid-template-columns: repeat(3, 1fr); }
+.rg2 { grid-template-columns: repeat(2, 1fr); }
+
+.hist-table-wrap { overflow-y: auto; overflow-x: hidden; }
+.fleet-toolbar .input-suffix { width: 218px; margin-left: auto; }
 
 /* mobile-only affordances, hidden on desktop */
 .nav-toggle, .brand-close { display: none; }
@@ -454,8 +476,8 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
    overflowed horizontally, so this stacks them at the point they stop fitting
    rather than at an arbitrary tablet width. */
 @media (max-width: 1460px) {
-  .kpi-strip { grid-template-columns: repeat(2, 1fr) !important; }
-  .fleet-layout { grid-template-columns: 1fr !important; }
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .fleet-layout { grid-template-columns: 1fr; }
 }
 
 /* ---- Fleet: swap the table for cards once even one column can't hold it ----
@@ -468,57 +490,58 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
 
 /* ---- Tablet: relax the widest multi-column grids ---- */
 @media (max-width: 1024px) {
-  .rg6 { grid-template-columns: repeat(3, 1fr) !important; }
-  .rg5 { grid-template-columns: repeat(3, 1fr) !important; }
-  .rg4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .rg6 { grid-template-columns: repeat(3, 1fr); }
+  .rg5 { grid-template-columns: repeat(3, 1fr); }
+  .rg4 { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ---- Drawer nav: sidebar becomes an off-canvas drawer ---- */
 @media (max-width: 900px) {
-  .app, [data-density="compact"] .app { grid-template-columns: 1fr !important; }
+  .app, [data-density="compact"] .app { grid-template-columns: 1fr; }
   .nav-toggle { display: grid; }
   .brand-close { display: grid; margin-left: auto; }
   .sidebar {
     position: fixed; top: 0; bottom: 0; left: 0;
     width: min(84vw, 288px); z-index: 75; overflow-y: auto;
     transform: translateX(-100%);
-    transition: transform .24s var(--ease);
+    transition: transform calc(.24s * var(--motion)) var(--ease);
   }
   .sidebar.open { transform: none; box-shadow: var(--shadow); }
   .nav-scrim {
     position: fixed; inset: 0; z-index: 70;
     background: color-mix(in oklch, var(--bg-2) 62%, transparent);
-    backdrop-filter: blur(2px); animation: fade .18s var(--ease);
+    backdrop-filter: blur(2px); animation: fade calc(.18s * var(--motion)) var(--ease);
   }
 }
 
 /* ---- Phones ---- */
 @media (max-width: 640px) {
-  .page { padding: 12px !important; }
+  /* the density selector is repeated so this outranks [data-density] .page */
+  .page, [data-density="compact"] .page { padding: 12px; }
   .topbar { padding: 0 12px; gap: 8px; }
   .crumbs { min-width: 0; overflow: hidden; }
   .crumbs .cur, .crumbs .seg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* stack all multi-column layouts */
-  .kpi-strip { grid-template-columns: 1fr !important; }
-  .rg6, .rg5, .rg4 { grid-template-columns: repeat(2, 1fr) !important; }
-  .rg3, .rg2, .two-col, .detail-grid { grid-template-columns: 1fr !important; }
+  .kpi-strip { grid-template-columns: 1fr; }
+  .rg6, .rg5, .rg4 { grid-template-columns: repeat(2, 1fr); }
+  .rg3, .rg2, .two-col, .detail-grid { grid-template-columns: 1fr; }
 
   /* stacked KPI cells: swap right-border separators for bottom ones */
-  .kpi-strip > * { border-right: none !important; border-bottom: 1px solid var(--border); }
-  .kpi-strip > *:last-child { border-bottom: none !important; }
+  .kpi-strip > * { border-right: none; border-bottom: 1px solid var(--border); }
+  .kpi-strip > *:last-child { border-bottom: none; }
 
   /* data tables scroll horizontally within their panel */
   .panel-body, .panel-body.flush { overflow-x: auto; }
   .tbl { min-width: 620px; }
-  .hist-table-wrap { overflow-x: auto !important; }
+  .hist-table-wrap { overflow-x: auto; }
 
   /* panel headers wrap their actions below the title */
   .panel-head { flex-wrap: wrap; }
 
   /* fleet: the table/card swap already happened at 1080px — just let the
      toolbar's search box span the row */
-  .fleet-toolbar .input-suffix { width: 100% !important; margin-left: 0 !important; }
+  .fleet-toolbar .input-suffix { width: 100%; margin-left: 0; }
 
   /* cycle-history panel needs an explicit height once un-stretched */
   .hist-panel { height: 340px; }
@@ -543,7 +566,7 @@ td .id { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var
   .toast { max-width: none; }
 
   /* modals get more room */
-  .scrim { padding: 12px !important; }
+  .scrim { padding: 12px; }
 }
 
 /* ---- Fleet cards (mobile alternative to the fleet table) ---- */

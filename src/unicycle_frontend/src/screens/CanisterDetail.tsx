@@ -486,7 +486,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
         </div>
       )}
 
-      <div className="grid detail-grid" style={{ gridTemplateColumns: '300px 1fr', alignItems: 'stretch' }}>
+      <div className="grid detail-grid" style={{ alignItems: 'stretch' }}>
         <Panel title="Health" eyebrow="// current vs threshold">
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '6px 0' }}>
             <HealthGauge cur={cur} min={min} status={status} style={GAUGE_STYLE} size={120} />
@@ -539,7 +539,7 @@ export function CanisterDetail({ identity, canisterId, actingAs, onBack, onChang
               )}
             </div>
           ) : (
-            <div className="hist-table-wrap" style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+            <div className="hist-table-wrap" style={{ position: 'absolute', inset: 0 }}>
               <table className="tbl">
                 <thead>
                   <tr>

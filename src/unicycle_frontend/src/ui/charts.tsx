@@ -55,7 +55,7 @@ function RingGauge({ cur, min, status, size = 64, stroke = 6, showValue = true }
         strokeLinecap="round"
         strokeDasharray={`${ratio * c} ${c}`}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ transition: 'stroke-dasharray .5s var(--ease)' }}
+        style={{ transition: 'stroke-dasharray calc(.5s * var(--motion)) var(--ease)' }}
       />
       <circle cx={tx} cy={ty} r={stroke / 2 + 1.2} fill="var(--panel)" stroke="var(--text-1)" strokeWidth="1.4" />
       {showValue && (
@@ -109,7 +109,7 @@ function DialGauge({ cur, min, status, size = 64, showValue = true }: GaugeProps
         stroke={col}
         strokeWidth="6"
         strokeLinecap="round"
-        style={{ transition: 'all .5s var(--ease)' }}
+        style={{ transition: 'all calc(.5s * var(--motion)) var(--ease)' }}
       />
       <line x1={tx} y1={ty} x2={ti[0]} y2={ti[1]} stroke="var(--text-1)" strokeWidth="1.6" />
       {showValue && (
@@ -158,7 +158,7 @@ function BarGauge({ cur, min, status, size = 64 }: GaugeProps) {
             bottom: 0,
             height: `${ratio * 100}%`,
             background: col,
-            transition: 'height .5s var(--ease)',
+            transition: 'height calc(.5s * var(--motion)) var(--ease)',
             borderRadius: '0 0 3px 3px',
           }}
         />
@@ -207,7 +207,7 @@ export function FuelBar({ cur, min, status, width = 120 }: { cur: bigint | null;
         style={{
           width: `${ratio * 100}%`,
           background: status === 'suspended' || status === 'unknown' ? 'var(--text-2)' : undefined,
-          transition: 'width .5s var(--ease)',
+          transition: 'width calc(.5s * var(--motion)) var(--ease)',
         }}
       />
       <span className="thr" style={{ left: `${thr * 100}%` }} />
