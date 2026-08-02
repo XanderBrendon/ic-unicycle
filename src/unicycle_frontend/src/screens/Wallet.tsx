@@ -405,9 +405,6 @@ export function Wallet({ identity }: WalletProps) {
   const localTokens: TokenInfo[] = [...BUILT_IN_TOKENS, ...customTokens];
   const depositTokens = BUILT_IN_TOKENS;
 
-  const srcBalance = (mode: TransferMode, token: TokenInfo): bigint | null =>
-    mode === 'withdraw' ? deposit.balances[token.symbol] ?? null : local.balances[token.symbol] ?? null;
-
   const onDone = () => {
     local.refresh();
     deposit.refresh();
@@ -420,9 +417,9 @@ export function Wallet({ identity }: WalletProps) {
     footer = (
       <TransferModal
         identity={identity}
-        mode={flow.mode}
-        token={flow.token}
-        srcBalance={srcBalance(flow.mode, flow.token)}
+        initialMode={flow.mode}
+        initialToken={flow.token}
+        customTokens={customTokens}
         onClose={() => setFlow(null)}
         onDone={onDone}
       />
