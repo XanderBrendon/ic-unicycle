@@ -20,21 +20,22 @@ export function isBuiltIn(token: TokenInfo): boolean {
   return token.backendToken !== undefined;
 }
 
-export const BUILT_IN_TOKENS: readonly TokenInfo[] = [
-  {
-    symbol: 'ICP',
-    name: 'Internet Computer',
-    decimals: 8,
-    ledgerCanisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
-    fee: 10_000n,
-    backendToken: BackendToken.ICP,
-  },
-  {
-    symbol: 'TCYCLES',
-    name: 'Trillion cycles',
-    decimals: 12,
-    ledgerCanisterId: 'um5iw-rqaaa-aaaaq-qaaba-cai',
-    fee: 100_000_000n,
-    backendToken: BackendToken.TCYCLES,
-  },
-] as const;
+export const ICP_TOKEN: TokenInfo = {
+  symbol: 'ICP',
+  name: 'Internet Computer',
+  decimals: 8,
+  ledgerCanisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
+  fee: 10_000n,
+  backendToken: BackendToken.ICP,
+};
+
+export const TCYCLES_TOKEN: TokenInfo = {
+  symbol: 'TCYCLES',
+  name: 'Trillion cycles',
+  decimals: 12,
+  ledgerCanisterId: 'um5iw-rqaaa-aaaaq-qaaba-cai',
+  fee: 100_000_000n,
+  backendToken: BackendToken.TCYCLES,
+};
+
+export const BUILT_IN_TOKENS: readonly TokenInfo[] = [ICP_TOKEN, TCYCLES_TOKEN];

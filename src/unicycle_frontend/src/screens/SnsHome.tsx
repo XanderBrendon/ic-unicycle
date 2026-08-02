@@ -6,6 +6,8 @@ import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useIcpTcRate } from '../canisters/useIcpTcRate';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { AddCanisterModal } from '../canisters/CanisterModals';
+import { TransferModal } from '../wallet/TransferModal';
+import { ICP_TOKEN } from '../wallet/tokens';
 import { GroupEditModal } from '../canisters/GroupEditModal';
 import { CopyId, Tabs, ErrorHint } from '../ui/primitives';
 import { Icon } from '../ui/icons';
@@ -43,6 +45,7 @@ export function SnsHome({
   const schedule = useTimerSchedule(identity); // global fleet-wide sweep — same value as the personal overview
   const [addOpen, setAddOpen] = useState(false);
   const [groupEditOpen, setGroupEditOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const governance = useMemo(() => {
     if (knownGovernance) return knownGovernance;
     if (!info) return null;
@@ -101,7 +104,14 @@ export function SnsHome({
           )
         ) : (
           <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
-            <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />
+            <FleetKpiStrip
+              fleet={fleet}
+              deposit={deposit}
+              rate={rate}
+              historyEvents={null}
+              onTransfer={() => setTransferOpen(true)}
+              transferLabel="Deposit"
+            />
             <FleetDashboard
               fleet={fleet}
               onOpen={onOpen}
@@ -128,6 +138,20 @@ export function SnsHome({
             fleet.refresh();
             setAddOpen(false);
           }}
+        />
+      )}
+
+      {/* Depositing spends the user's own tokens and needs no SNS authority, so
+          this is offered to read-only viewers too — a member funding an SNS they
+          don't administer is exactly the case it exists for. */}
+      {transferOpen && (
+        <TransferModal
+          identity={identity}
+          target={{ kind: 'sns', root, name: info?.name }}
+          initialMode="deposit"
+          initialToken={ICP_TOKEN}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => deposit.refresh()}
         />
       )}
 

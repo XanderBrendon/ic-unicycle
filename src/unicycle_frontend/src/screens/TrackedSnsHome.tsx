@@ -11,6 +11,8 @@ import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useIcpTcRate } from '../canisters/useIcpTcRate';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { GroupEditModal } from '../canisters/GroupEditModal';
+import { TransferModal } from '../wallet/TransferModal';
+import { ICP_TOKEN } from '../wallet/tokens';
 import { CopyId, Modal, ErrorHint } from '../ui/primitives';
 import { Icon } from '../ui/icons';
 import { fmtPid } from '../ui/format';
@@ -67,6 +69,7 @@ export function TrackedSnsHome({
   const schedule = useTimerSchedule(identity);
   const toast = useToast();
   const [groupEditOpen, setGroupEditOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -126,7 +129,13 @@ export function TrackedSnsHome({
         <OverviewLoading />
       ) : (
         <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
-          <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={null} />
+          <FleetKpiStrip
+            fleet={fleet}
+            deposit={deposit}
+            rate={rate}
+            historyEvents={null}
+            onTransfer={() => setTransferOpen(true)}
+          />
           <FleetDashboard
             fleet={fleet}
             onOpen={onOpen}
@@ -135,6 +144,19 @@ export function TrackedSnsHome({
             schedule={schedule}
           />
         </div>
+      )}
+
+      {/* This page's deposit balance is the user's OWN subaccount, not the
+          SNS's — so it gets the ordinary two-tab dialog. */}
+      {transferOpen && (
+        <TransferModal
+          identity={identity}
+          target={{ kind: 'self' }}
+          initialMode="deposit"
+          initialToken={ICP_TOKEN}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => deposit.refresh()}
+        />
       )}
 
       {groupEditOpen && (

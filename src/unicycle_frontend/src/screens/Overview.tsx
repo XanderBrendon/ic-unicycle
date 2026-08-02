@@ -26,6 +26,8 @@ import { useNow } from '../ui/now';
 import { useDepositBalances, type DepositBalances } from '../wallet/useDepositBalances';
 import { useBalanceHistory, reconstructSeries, type BalancePoint } from '../wallet/useBalanceHistory';
 import { useIcpTcRate, type IcpTcRate } from '../canisters/useIcpTcRate';
+import { TransferModal } from '../wallet/TransferModal';
+import { ICP_TOKEN } from '../wallet/tokens';
 import { useTimerSchedule } from '../canisters/useTimerSchedule';
 import { Token, type BalanceEvent } from '../bindings/unicycle_backend/unicycle_backend';
 import type { Fleet, FleetActivityItem, FleetCanister } from '../canisters/useFleet';
@@ -127,12 +129,14 @@ function TripleCell({
   icon,
   stats,
   sub,
+  action,
   children,
 }: {
   label: ReactNode;
   icon?: ReactNode;
   stats: [TripleStat, TripleStat, TripleStat];
   sub?: ReactNode;
+  action?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -148,6 +152,7 @@ function TripleCell({
       <div className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         {icon}
         {label}
+        {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {stats.map((s, i) => (
@@ -577,11 +582,13 @@ export function OverviewEmpty({ onAdd, onAddSns, onGroupEdit }: { onAdd: () => v
 }
 
 /* ---------------- KPI strip ---------------- */
-export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
+export function FleetKpiStrip({ fleet, deposit, rate, historyEvents, onTransfer, transferLabel = 'Transfer' }: {
   fleet: Fleet;
   deposit: DepositBalances;
   rate: IcpTcRate;
   historyEvents: BalanceEvent[] | null; // null → runway chart renders without history
+  onTransfer?: () => void; // omitted → no button, for callers with no dialog
+  transferLabel?: string;
 }) {
   const nowMs = Date.now();
   const depositTC = deposit.balances.TCYCLES;
@@ -636,6 +643,18 @@ export function FleetKpiStrip({ fleet, deposit, rate, historyEvents }: {
       <TripleCell
         label="Deposit balance"
         icon={<Icon name="wallet" size={12} />}
+        action={
+          onTransfer && (
+            <button
+              className="btn ghost sm"
+              style={{ height: 22, padding: '0 7px', fontSize: 11 }}
+              onClick={onTransfer}
+            >
+              <Icon name="send" size={12} />
+              {transferLabel}
+            </button>
+          )
+        }
         stats={[
           { value: <TC raw={depositTC} />, caption: 'TC' },
           { value: fmtICP(depositICP, 2), caption: 'ICP' },
@@ -862,6 +881,7 @@ export function Overview({ identity, fleet, onOpen, onAdd, onAddSns, snsNames }:
   const rate = useIcpTcRate(identity);
   const balHist = useBalanceHistory(identity);
   const schedule = useTimerSchedule(identity);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   // Until the first fleet response resolves we don't yet know whether the user
   // has any canisters, so show a neutral loading state rather than the full
@@ -879,8 +899,27 @@ export function Overview({ identity, fleet, onOpen, onAdd, onAddSns, snsNames }:
 
   return (
     <div className="fade-up grid" style={{ gap: 'var(--gap)' }}>
-      <FleetKpiStrip fleet={fleet} deposit={deposit} rate={rate} historyEvents={balHist.events} />
+      <FleetKpiStrip
+        fleet={fleet}
+        deposit={deposit}
+        rate={rate}
+        historyEvents={balHist.events}
+        onTransfer={() => setTransferOpen(true)}
+      />
       <FleetDashboard fleet={fleet} onOpen={onOpen} onAdd={onAdd} onAddSns={onAddSns} schedule={schedule} snsNames={snsNames} />
+      {transferOpen && (
+        <TransferModal
+          identity={identity}
+          target={{ kind: 'self' }}
+          initialMode="deposit"
+          initialToken={ICP_TOKEN}
+          onClose={() => setTransferOpen(false)}
+          onDone={() => {
+            deposit.refresh();
+            balHist.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

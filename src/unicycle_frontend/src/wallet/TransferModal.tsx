@@ -30,8 +30,12 @@ export type TransferMode = 'deposit' | 'withdraw' | 'send';
 export type TransferTarget =
   /** The signed-in user's own deposit subaccount — deposit and withdraw. */
   | { kind: 'self' }
-  /** An SNS root's deposit subaccount: DAO-controlled, so deposit only. */
-  | { kind: 'sns'; root: Principal; name?: string };
+  /**
+   * An SNS root's deposit subaccount: DAO-controlled, so deposit only. `name`
+   * is the governance metadata name, which is absent until that fetch lands and
+   * null for an SNS that never set one — the root id stands in either way.
+   */
+  | { kind: 'sns'; root: Principal; name?: string | null };
 
 export interface TransferModalProps {
   identity: Identity;
