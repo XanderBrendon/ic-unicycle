@@ -78,6 +78,22 @@ test("a top-up before the anchor reading is counted but not added back to burn",
   assert t.topUpCycles == 3 * T;
 });
 
+test("a top-up larger than the burn is not itself counted as burn", func() {
+  // The reported bug: a healthy canister burning 0.5T over 3 days is topped up
+  // 5T, so its balance RISES. Clamping the decline before adding the top-up
+  // back reported the whole 5T as burned.
+  let rs = [ok(now, 14_500_000_000_000), ok(now - 3 * DAY, 10 * T)];
+  let t = Report.aggregate([input(A, null, rs, [topUp(now - 2 * DAY, 5 * T)])], now - 3 * DAY, now);
+  assert t.burned == 500_000_000_000;
+  assert t.perCanister[0].avgDaily == 166_666_666_666;
+});
+
+test("a top-up exactly covering the burn leaves zero net burn", func() {
+  let rs = [ok(now, 15 * T), ok(now - 3 * DAY, 10 * T)];
+  let t = Report.aggregate([input(A, null, rs, [topUp(now - 2 * DAY, 5 * T)])], now - 3 * DAY, now);
+  assert t.burned == 0;
+});
+
 test("a risen balance clamps to zero burn rather than going negative", func() {
   let rs = [ok(now, 12 * T), ok(now - 7 * DAY, 10 * T)];
   let t = Report.aggregate([input(A, null, rs, [])], now - 7 * DAY, now);

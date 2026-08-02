@@ -164,14 +164,18 @@ module {
         case (?latest, ?anchor) {
           let balNow = History.okBal(latest);
           let balStart = History.okBal(anchor);
-          let decline = if (balStart >= balNow) { (balStart - balNow) : Nat } else { 0 };
           var delivered = 0;
           for (u in c.topUps.vals()) {
             if (u.attemptedAt >= anchor.recordedAt and u.attemptedAt < latest.recordedAt) {
               switch (u.result) { case (#ok _) { delivered += u.amount }; case (_) {} };
             };
           };
-          let rowBurn = decline + delivered;
+          // Funded start minus end. The clamp wraps the WHOLE expression, not
+          // just `balStart - balNow`: a top-up bigger than the burn raises the
+          // balance, and clamping the decline first would saturate it to zero
+          // and then report the entire top-up as consumed.
+          let funded = balStart + delivered;
+          let rowBurn = if (funded >= balNow) { (funded - balNow) : Nat } else { 0 };
           let truncated = not reachesBack(c.readings, windowStart);
           let coveredDays = if (truncated) { days((now - anchor.recordedAt) : Nat) } else { windowDays };
           if (truncated) {
