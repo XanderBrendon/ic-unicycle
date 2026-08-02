@@ -10,22 +10,32 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
+import type { Principal } from '@icp-sdk/core/principal';
 import { Field, Modal, KV, ErrorText, TC, Tabs } from '../ui/primitives';
 import { Icon } from '../ui/icons';
+import { fmtPid } from '../ui/format';
 import { useToast } from '../ui/toast';
 import { useDeposit } from './useDeposit';
 import { useWithdraw } from './useWithdraw';
 import { useTransfer } from './useTransfer';
 import { useLocalWalletBalances } from './useLocalWalletBalances';
 import { useDepositBalances } from './useDepositBalances';
+import { depositAccountFor } from './depositAccount';
 import { BUILT_IN_TOKENS, type TokenInfo } from './tokens';
 import { parseDecimalAmount, formatTokenAmount } from './format';
 import { parseDestination } from './parseDestination';
 
 export type TransferMode = 'deposit' | 'withdraw' | 'send';
 
+export type TransferTarget =
+  /** The signed-in user's own deposit subaccount — deposit and withdraw. */
+  | { kind: 'self' }
+  /** An SNS root's deposit subaccount: DAO-controlled, so deposit only. */
+  | { kind: 'sns'; root: Principal; name?: string };
+
 export interface TransferModalProps {
   identity: Identity;
+  target: TransferTarget;
   initialMode: TransferMode;
   initialToken: TokenInfo;
   /** Extra tokens offered in send mode. Only the Wallet has any. */
@@ -44,6 +54,7 @@ function amountLabel(raw: bigint, token: TokenInfo): ReactNode {
 
 export function TransferModal({
   identity,
+  target,
   initialMode,
   initialToken,
   customTokens = [],
@@ -55,7 +66,7 @@ export function TransferModal({
   const withdraw = useWithdraw(identity);
   const transfer = useTransfer(identity);
   const local = useLocalWalletBalances(identity, customTokens);
-  const held = useDepositBalances(identity);
+  const held = useDepositBalances(identity, target.kind === 'sns' ? target.root : undefined);
 
   const [mode, setMode] = useState<TransferMode>(initialMode);
   const [token, setToken] = useState<TokenInfo>(initialToken);
@@ -63,8 +74,20 @@ export function TransferModal({
   const [dest, setDest] = useState('');
   const [submitted, setSubmitted] = useState<bigint | null>(null);
   const [destError, setDestError] = useState<string | null>(null);
+  // Confirming is a second, separate press: the first one only reveals what the
+  // deposit means.
+  const [confirming, setConfirming] = useState(false);
 
-  const status = mode === 'deposit' ? deposit.status : mode === 'withdraw' ? withdraw.status : transfer.status;
+  const sns = target.kind === 'sns' ? target : null;
+  const snsName = sns ? sns.name ?? fmtPid(sns.root.toText(), 6, 4) : '';
+
+  const status = sns
+    ? transfer.status
+    : mode === 'deposit'
+      ? deposit.status
+      : mode === 'withdraw'
+        ? withdraw.status
+        : transfer.status;
   const busy = status.kind !== 'idle' && status.kind !== 'success' && status.kind !== 'error';
 
   // Send is the only mode custom tokens can reach: they carry no `backendToken`,
@@ -72,8 +95,9 @@ export function TransferModal({
   const tokenOptions: readonly TokenInfo[] =
     mode === 'send' ? [...BUILT_IN_TOKENS, ...customTokens] : BUILT_IN_TOKENS;
 
-  // A deposit is approve + transfer_from — two fee-charging ledger operations.
-  const totalFee = mode === 'deposit' ? token.fee * 2n : token.fee;
+  // A deposit to your own balance is approve + transfer_from — two fee-charging
+  // ledger operations. An SNS deposit is a single icrc1_transfer.
+  const totalFee = mode === 'deposit' && !sns ? token.fee * 2n : token.fee;
   const src = (mode === 'withdraw' ? held.balances[token.symbol] : local.balances[token.symbol]) ?? 0n;
   const maxSpendable = src > totalFee ? src - totalFee : 0n;
   const raw = parseDecimalAmount(amount, token.decimals);
@@ -113,8 +137,9 @@ export function TransferModal({
     }
   }, [status.kind]);
 
-  const blurb =
-    mode === 'deposit'
+  const blurb = sns
+    ? `Move funds into ${snsName}'s Unicycle deposit balance so the service can fund its canisters.`
+    : mode === 'deposit'
       ? 'Move funds into your Unicycle deposit balance so the service can fund top-ups.'
       : mode === 'withdraw'
         ? 'Pull funds from your deposit balance back to your local wallet.'
@@ -124,8 +149,18 @@ export function TransferModal({
 
   const confirm = () => {
     if (!valid || raw === null) return;
+    // First press on an SNS deposit only opens the confirm step.
+    if (sns && !confirming) {
+      setConfirming(true);
+      return;
+    }
     setSubmitted(raw);
-    if (mode === 'deposit') {
+    if (sns) {
+      // The backend's `deposit` always credits the *caller's* subaccount, so an
+      // SNS deposit is a direct transfer to the account the SNS's own treasury
+      // proposal funds.
+      transfer.transfer(token, depositAccountFor(sns.root), raw);
+    } else if (mode === 'deposit') {
       deposit.deposit(token, raw);
     } else if (mode === 'withdraw') {
       withdraw.withdraw(token, raw);
@@ -144,10 +179,51 @@ export function TransferModal({
   const insufficient = afterRaw < 0n;
   const after = insufficient ? 0n : afterRaw;
 
+  if (sns && confirming && raw !== null) {
+    return (
+      <Modal
+        title={`Deposit to ${snsName}`}
+        eyebrow="// confirm — this cannot be undone"
+        onClose={onClose}
+        footer={
+          <>
+            <button className="btn" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+            <button className="btn accent" disabled={busy} onClick={confirm}>
+              {busy ? 'Working…' : 'Yes, deposit'}
+            </button>
+          </>
+        }
+      >
+        <div className="grid" style={{ gap: 16 }}>
+          <div className="hint" style={{ color: 'var(--crit)', lineHeight: 1.55 }}>
+            You are about to move {amountLabel(raw, token)} into an account controlled by{' '}
+            {snsName}. These funds become {snsName}'s — they can only be moved by its
+            governance, and neither you nor Unicycle can return them to you.
+          </div>
+          <div className="panel" style={{ background: 'var(--bg-2)', padding: '10px 12px' }}>
+            <KV k="Amount">{amountLabel(raw, token)}</KV>
+            <KV k="Network fee">{amountLabel(totalFee, token)}</KV>
+            <KV k="Recipient">{snsName}</KV>
+            <KV k="SNS root">{fmtPid(sns.root.toText(), 6, 4)}</KV>
+          </div>
+          {status.kind === 'error' && (
+            <div className="hint" style={{ color: 'var(--crit)' }}>
+              <ErrorText error={status} />
+            </div>
+          )}
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
-      title={mode === 'send' ? 'Send tokens' : 'Deposit balance'}
-      eyebrow={mode === 'send' ? `// ${token.symbol}` : '// deposit or withdraw'}
+      title={sns ? `Deposit to ${snsName}` : mode === 'send' ? 'Send tokens' : 'Deposit balance'}
+      eyebrow={
+        sns ? '// SNS-controlled account' : mode === 'send' ? `// ${token.symbol}` : '// deposit or withdraw'
+      }
       onClose={onClose}
       footer={
         <>
@@ -163,15 +239,25 @@ export function TransferModal({
       <div className="grid" style={{ gap: 16 }}>
         {mode !== 'send' && (
           <Tabs
-            tabs={[
-              { id: 'deposit', label: 'Deposit' },
-              { id: 'withdraw', label: 'Withdraw' },
-            ]}
+            tabs={
+              sns
+                ? [{ id: 'deposit', label: 'Deposit' }]
+                : [
+                    { id: 'deposit', label: 'Deposit' },
+                    { id: 'withdraw', label: 'Withdraw' },
+                  ]
+            }
             active={mode}
             onChange={(id) => pickMode(id as TransferMode)}
           />
         )}
         <p className="faint" style={{ fontSize: 12, lineHeight: 1.55 }}>{blurb}</p>
+        {sns && (
+          <div className="hint" style={{ color: 'var(--crit)', lineHeight: 1.55 }}>
+            This deposit goes to an account controlled by {snsName}. You will not be able to
+            withdraw it — once deposited, only {snsName} can move these funds.
+          </div>
+        )}
         {mode === 'send' && (
           <Field label="Destination" error={destError ?? undefined}>
             <input
@@ -201,7 +287,7 @@ export function TransferModal({
         <Field
           label="Amount"
           hint={
-            mode === 'deposit'
+            mode === 'deposit' && !sns
               ? 'The ledger fee is charged twice — on approve and on transfer_from.'
               : 'A ledger fee is charged on top of the amount.'
           }
@@ -224,7 +310,7 @@ export function TransferModal({
         </Field>
         <div className="panel" style={{ background: 'var(--bg-2)', padding: '10px 12px' }}>
           <KV k={mode === 'withdraw' ? 'Deposit balance' : 'Wallet balance'}>{amountLabel(src, token)}</KV>
-          <KV k={mode === 'deposit' ? 'Network fee (2×)' : 'Network fee'}>{amountLabel(totalFee, token)}</KV>
+          <KV k={mode === 'deposit' && !sns ? 'Network fee (2×)' : 'Network fee'}>{amountLabel(totalFee, token)}</KV>
           {raw !== null && raw > 0n && (
             <KV k="After">
               <span className={insufficient ? '' : 'accent'} style={{ color: insufficient ? 'var(--crit)' : undefined }}>

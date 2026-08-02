@@ -417,6 +417,7 @@ export function Wallet({ identity }: WalletProps) {
     footer = (
       <TransferModal
         identity={identity}
+        target={{ kind: 'self' }}
         initialMode={flow.mode}
         initialToken={flow.token}
         customTokens={customTokens}
