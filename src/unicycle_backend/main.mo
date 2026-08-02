@@ -4186,7 +4186,12 @@ persistent actor class Unicycle(
   // hotkeyed neuron and maps the response. The governance actor is built inline
   // (the governance canister varies per SNS). Callers supply the `action` — a
   // `#Motion` for US22's test path, an `#AddGenericNervousSystemFunction` for
-  // US23's setup. `url` is empty for now (richer bodies are US25/US26).
+  // US23's setup. `url` points every Unicycle proposal at that SNS's public
+  // Unicycle page, resolved through the `snsRootByGovernance` registry cache. A
+  // governance missing from that cache (never refreshed, or an SNS the registry
+  // does not list) falls back to the empty string governance has always
+  // accepted — every caller here reached us via `resolveSnsRoot` or a fan-out
+  // over the cache itself, so the miss is defensive rather than expected.
   // Governance accepts the call only if the backend is a hotkey on the neuron; a
   // governance `#Error` and an unreachable governance both surface as `#err` —
   // the error path is the proof the hotkey matters.
@@ -4200,10 +4205,14 @@ persistent actor class Unicycle(
     let gov : actor {
       manage_neuron : shared Types.SnsManageNeuron -> async Types.SnsManageNeuronResponse;
     } = actor (governance.toText());
+    let url = switch (snsRootByGovernance.get(governance)) {
+      case (?root) { Report.snsPageUrl(root) };
+      case null { "" };
+    };
     try {
       let response = await gov.manage_neuron({
         subaccount = neuronId;
-        command = ?#MakeProposal({ title; url = ""; summary; action = ?action });
+        command = ?#MakeProposal({ title; url; summary; action = ?action });
       });
       switch (response.command) {
         case (?#MakeProposal({ proposal_id = ?{ id } })) { #ok(id.toNat()) };
@@ -4535,15 +4544,26 @@ persistent actor class Unicycle(
   // treasury into that subaccount — optionally embedding a cycle-usage report.
   // ---------------------------------------------------------------------------
 
-  // Multi-range cycle-usage report engine (US25). Gathers (canisterId, readings)
-  // pairs from `tracked` then delegates to the pure Report.build.
-  func buildCycleUsageReport(root : Principal) : Text {
-    let pairs = List.empty<(Principal, [CycleReading])>();
+  // Cycle-usage report engine (US25). Gathers this root's readings, top-ups and
+  // nicknames from `tracked` then delegates to the pure Report pair. `windowStart`
+  // comes from the caller's resolver — the cadence and deposit reports measure
+  // different periods.
+  func buildCycleUsageReport(root : Principal, windowStart : Nat) : Text {
+    let inputs = List.empty<Report.CanisterInput>();
     switch (tracked.get(root)) {
       case null {};
-      case (?userMap) { for ((canisterId, _cfg) in userMap.entries()) { pairs.add((canisterId, readingsFor(canisterId))) } };
+      case (?userMap) {
+        for ((canisterId, cfg) in userMap.entries()) {
+          inputs.add({
+            canisterId;
+            nickname = cfg.nickname;
+            readings = readingsFor(canisterId);
+            topUps = topUpsFor(root, canisterId);
+          });
+        };
+      };
     };
-    Report.build(pairs.toArray(), Int.abs(Time.now()));
+    Report.build(Report.aggregate(inputs.toArray(), windowStart, Int.abs(Time.now())), root);
   };
 
   // Per-SNS check core, shared by the timer fan-out and `adminSnsRunDepositCheck`.
@@ -4568,7 +4588,12 @@ persistent actor class Unicycle(
       # " is below the configured minimum " # NumFmt.icpE8s(cfg.minBalanceE8s)
       # ". This proposal transfers " # NumFmt.icpE8s(cfg.depositAmountE8s)
       # " from the SNS treasury into the SNS's Unicycle deposit subaccount.";
-    if (cfg.includeReport) { summary #= "\n\n" # buildCycleUsageReport(root) };
+    // Deltas since the last funding request, capped at 30 days. Read before the
+    // submit below stamps a fresh timestamp.
+    if (cfg.includeReport) {
+      let windowStart = Report.depositWindowStart(snsLastDepositProposal.get(root), Int.abs(Time.now()));
+      summary #= "\n\n" # buildCycleUsageReport(root, windowStart);
+    };
     let transfer : Types.SnsTransferTreasuryFunds = {
       from_treasury = 1;        // ICP treasury (verified against the live candid)
       to_principal = ?Principal.fromActor(self);
@@ -4636,7 +4661,9 @@ persistent actor class Unicycle(
       case null {};
     };
     let neuronId = switch (snsProposalNeuron.get(root)) { case (?n) n; case null { return mk(#skippedNoNeuron) } };
-    let summary = buildCycleUsageReport(root);
+    // Deltas since the last report motion; 7 days when this is the first.
+    let windowStart = Report.cadenceWindowStart(snsLastReportProposal.get(root), Int.abs(Time.now()));
+    let summary = buildCycleUsageReport(root, windowStart);
     // ASYNC-1: per-root guard before the submit await (see checkSnsDeposit).
     if (snsCheckInFlight.contains(root)) return mk(#skippedNotDue);
     snsCheckInFlight.add(root);
