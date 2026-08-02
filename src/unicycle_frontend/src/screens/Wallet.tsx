@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Identity } from '@icp-sdk/core/agent';
 import { createUnicycleBackendActor } from '../auth/actor';
-import { Panel, Field, Modal, KV, Seg, Empty, ErrorText, TC } from '../ui/primitives';
+import { Panel, Field, Modal, Seg, Empty, ErrorText, TC } from '../ui/primitives';
 import { Icon } from '../ui/icons';
 import { Sparkline } from '../ui/charts';
 import { fmtAgo, fmtICP, nsToMs, type UserError } from '../ui/format';
@@ -16,31 +16,18 @@ import { useDepositBalances } from '../wallet/useDepositBalances';
 import { useBalanceHistory, reconstructSeries, eventLabel } from '../wallet/useBalanceHistory';
 import { Token, Variant_credit_debit, type BalanceEvent } from '../bindings/unicycle_backend/unicycle_backend';
 import { useCustomTokens } from '../wallet/useCustomTokens';
-import { useDeposit } from '../wallet/useDeposit';
-import { useWithdraw } from '../wallet/useWithdraw';
-import { useTransfer } from '../wallet/useTransfer';
+import { TransferModal, type TransferMode } from '../wallet/TransferModal';
 import { BUILT_IN_TOKENS, isBuiltIn, type TokenInfo } from '../wallet/tokens';
-import { parseDecimalAmount, formatTokenAmount } from '../wallet/format';
-import { parseDestination } from '../wallet/parseDestination';
+import { formatTokenAmount } from '../wallet/format';
 
 export interface WalletProps {
   identity: Identity;
 }
 
-type FlowMode = 'deposit' | 'withdraw' | 'transfer';
-
 function balanceText(raw: bigint | null, token: TokenInfo): { value: ReactNode; suffix: string } {
   if (raw === null) return { value: '—', suffix: '' };
   if (token.symbol === 'TCYCLES') return { value: <TC raw={raw} dp={4} />, suffix: 'TC' };
   return { value: formatTokenAmount(raw, token.decimals), suffix: '' };
-}
-
-function amountLabel(raw: bigint, token: TokenInfo): ReactNode {
-  return token.symbol === 'TCYCLES' ? (
-    <><TC raw={raw} dp={4} /> TC</>
-  ) : (
-    `${formatTokenAmount(raw, token.decimals)} ${token.symbol}`
-  );
 }
 
 function TokenRow({
@@ -122,165 +109,6 @@ function TokenRow({
         )}
       </div>
     </div>
-  );
-}
-
-function FlowModal({
-  identity,
-  mode,
-  token,
-  srcBalance,
-  onClose,
-  onDone,
-}: {
-  identity: Identity;
-  mode: FlowMode;
-  token: TokenInfo;
-  srcBalance: bigint | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const toast = useToast();
-  const deposit = useDeposit(identity);
-  const withdraw = useWithdraw(identity);
-  const transfer = useTransfer(identity);
-  const [amount, setAmount] = useState('');
-  const [dest, setDest] = useState('');
-  const [submitted, setSubmitted] = useState<bigint | null>(null);
-  const [destError, setDestError] = useState<string | null>(null);
-
-  const status = mode === 'deposit' ? deposit.status : mode === 'withdraw' ? withdraw.status : transfer.status;
-  const busy = status.kind !== 'idle' && status.kind !== 'success' && status.kind !== 'error';
-
-  const fee = token.fee;
-  const totalFee = mode === 'deposit' ? fee * 2n : fee;
-  const src = srcBalance ?? 0n;
-  const maxSpendable = src > totalFee ? src - totalFee : 0n;
-  const raw = parseDecimalAmount(amount, token.decimals);
-  const amtValid = raw !== null && raw > 0n && raw <= maxSpendable;
-  const destValid = mode !== 'transfer' || (dest.trim().length > 0 && parseDestination(dest).ok);
-  const valid = amtValid && destValid;
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (status.kind === 'success' && submitted !== null) {
-      const verb = mode === 'deposit' ? 'Deposited' : mode === 'withdraw' ? 'Withdrew' : 'Sent';
-      toast(
-        <>
-          <Icon name="check" size={14} style={{ color: 'var(--accent-ink)' }} />
-          {verb} <b>{amountLabel(submitted, token)}</b>
-        </>,
-      );
-      onDone();
-      onClose();
-    }
-  }, [status.kind]);
-
-  const titles: Record<FlowMode, string> = {
-    deposit: 'Deposit to service',
-    withdraw: 'Withdraw to local wallet',
-    transfer: 'Send tokens',
-  };
-  const subt: Record<FlowMode, string> = {
-    deposit: 'Move funds into your Unicycle deposit balance so the service can fund top-ups.',
-    withdraw: 'Pull funds from your deposit balance back to your local wallet.',
-    transfer: 'Send to any principal or ICRC-1 account.',
-  };
-
-  const setMax = () => setAmount(formatTokenAmount(maxSpendable, token.decimals));
-
-  const confirm = () => {
-    if (!valid || raw === null) return;
-    setSubmitted(raw);
-    if (mode === 'deposit') {
-      deposit.deposit(token, raw);
-    } else if (mode === 'withdraw') {
-      withdraw.withdraw(token, raw);
-    } else {
-      const d = parseDestination(dest);
-      if (!d.ok) {
-        setDestError(d.error);
-        return;
-      }
-      setDestError(null);
-      transfer.transfer(token, d.account, raw);
-    }
-  };
-
-  const afterRaw = raw !== null ? src - raw - totalFee : 0n;
-  const insufficient = afterRaw < 0n;
-  const after = insufficient ? 0n : afterRaw;
-
-  return (
-    <Modal
-      title={titles[mode]}
-      eyebrow={`// ${token.symbol}`}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn accent" disabled={!valid || busy} onClick={confirm}>
-            {busy ? 'Working…' : 'Confirm'}
-          </button>
-        </>
-      }
-    >
-      <div className="grid" style={{ gap: 16 }}>
-        <p className="faint" style={{ fontSize: 12, lineHeight: 1.55 }}>{subt[mode]}</p>
-        {mode === 'transfer' && (
-          <Field label="Destination" error={destError ?? undefined}>
-            <input
-              className="input mono"
-              placeholder="principal or ICRC-1 account"
-              value={dest}
-              onChange={(e) => setDest(e.target.value)}
-            />
-          </Field>
-        )}
-        <Field
-          label="Amount"
-          hint={
-            mode === 'deposit'
-              ? 'The ledger fee is charged twice — on approve and on transfer_from.'
-              : 'A ledger fee is charged on top of the amount.'
-          }
-        >
-          <div className="input-group">
-            <div className="input-suffix" style={{ flex: 1 }}>
-              <input
-                className="input mono"
-                placeholder="0.00"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                inputMode="decimal"
-              />
-              <span className="sfx">{token.symbol === 'TCYCLES' ? 'TC' : token.symbol}</span>
-            </div>
-            <button className="btn" onClick={setMax}>
-              Max
-            </button>
-          </div>
-        </Field>
-        <div className="panel" style={{ background: 'var(--bg-2)', padding: '10px 12px' }}>
-          <KV k="Available">{amountLabel(src, token)}</KV>
-          <KV k={mode === 'deposit' ? 'Network fee (2×)' : 'Network fee'}>{amountLabel(totalFee, token)}</KV>
-          {raw !== null && raw > 0n && (
-            <KV k="After">
-              <span className={insufficient ? '' : 'accent'} style={{ color: insufficient ? 'var(--crit)' : undefined }}>
-                {amountLabel(after, token)}
-              </span>
-            </KV>
-          )}
-        </div>
-        {status.kind === 'error' && (
-          <div className="hint" style={{ color: 'var(--crit)' }}>
-            <ErrorText error={status} />
-          </div>
-        )}
-      </div>
-    </Modal>
   );
 }
 
@@ -549,7 +377,7 @@ export function Wallet({ identity }: WalletProps) {
   const local = useLocalWalletBalances(identity, customTokens);
   const deposit = useDepositBalances(identity);
   const history = useBalanceHistory(identity);
-  const [flow, setFlow] = useState<{ mode: FlowMode; token: TokenInfo } | null>(null);
+  const [flow, setFlow] = useState<{ mode: TransferMode; token: TokenInfo } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [rebate, setRebate] = useState<bigint | null>(null);
 
@@ -577,7 +405,7 @@ export function Wallet({ identity }: WalletProps) {
   const localTokens: TokenInfo[] = [...BUILT_IN_TOKENS, ...customTokens];
   const depositTokens = BUILT_IN_TOKENS;
 
-  const srcBalance = (mode: FlowMode, token: TokenInfo): bigint | null =>
+  const srcBalance = (mode: TransferMode, token: TokenInfo): bigint | null =>
     mode === 'withdraw' ? deposit.balances[token.symbol] ?? null : local.balances[token.symbol] ?? null;
 
   const onDone = () => {
@@ -590,7 +418,7 @@ export function Wallet({ identity }: WalletProps) {
   let footer: ReactNode = null;
   if (flow) {
     footer = (
-      <FlowModal
+      <TransferModal
         identity={identity}
         mode={flow.mode}
         token={flow.token}
@@ -625,7 +453,7 @@ export function Wallet({ identity }: WalletProps) {
               balance={local.balances[token.symbol] ?? null}
               kind="local"
               onDeposit={() => setFlow({ mode: 'deposit', token })}
-              onTransfer={() => setFlow({ mode: 'transfer', token })}
+              onTransfer={() => setFlow({ mode: 'send', token })}
               onRemove={() => {
                 removeToken(token.ledgerCanisterId);
                 local.refresh();
