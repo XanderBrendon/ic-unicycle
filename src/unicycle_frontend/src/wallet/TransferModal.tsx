@@ -264,7 +264,7 @@ export function TransferModal({
           <Field label="Destination" error={destError ?? undefined}>
             <input
               className="input mono"
-              placeholder="principal"
+              placeholder="principal or ICRC-1 account"
               value={dest}
               onChange={(e) => setDest(e.target.value)}
             />
