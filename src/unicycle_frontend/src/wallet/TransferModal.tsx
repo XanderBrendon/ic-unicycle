@@ -241,16 +241,14 @@ export function TransferModal({
       }
     >
       <div className="grid" style={{ gap: 16 }}>
-        {mode !== 'send' && (
+        {/* No tab row for an SNS: there is nothing to switch to, and the title
+            already says what this does. */}
+        {mode !== 'send' && !sns && (
           <Tabs
-            tabs={
-              sns
-                ? [{ id: 'deposit', label: 'Deposit' }]
-                : [
-                    { id: 'deposit', label: 'Deposit' },
-                    { id: 'withdraw', label: 'Withdraw' },
-                  ]
-            }
+            tabs={[
+              { id: 'deposit', label: 'Deposit' },
+              { id: 'withdraw', label: 'Withdraw' },
+            ]}
             active={mode}
             onChange={(id) => pickMode(id as TransferMode)}
           />
