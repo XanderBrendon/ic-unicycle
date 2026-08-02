@@ -4106,8 +4106,8 @@ persistent actor class Unicycle(
   // ---------------------------------------------------------------------------
   // Recurring cycle-usage report config (US25). An SNS configures a cadence (in
   // days); the recurring `performCycleCheck` then submits a `#Motion` proposal whose
-  // body is the multi-range cycle-usage report whenever a report is due (see
-  // `checkSnsReport`). Backend-only like US22–US24 — the SNS sets config by
+  // body is the cycle-usage report for the period since the previous one whenever a
+  // report is due (see `checkSnsReport`). Backend-only like US22–US24 — the SNS sets config by
   // proposal, never the frontend.
   // ---------------------------------------------------------------------------
 
@@ -4126,7 +4126,8 @@ persistent actor class Unicycle(
     #Ok(
       "Submit a Unicycle cycle-usage report motion proposal every "
       # arg.cadenceDays.toText()
-      # " day(s), summarizing each tracked canister's net cycle change over the past 1, 3, 7 and 30 days."
+      # " day(s), summarizing cycles burned, top-ups, ICP converted to cycles and the "
+      # "heaviest-burning canisters since the previous report, with a link to this SNS's Unicycle page."
     );
   };
 
