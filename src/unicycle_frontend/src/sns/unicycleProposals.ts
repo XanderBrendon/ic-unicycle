@@ -112,8 +112,8 @@ function decodeArg(method: string, payload: Uint8Array): unknown {
 // ---------------------------------------------------------------------------
 
 // "10 ICP", "0.5 ICP", "0.00000001 ICP" — trailing zeros trimmed, unlike the
-// fixed-decimal `fmtICP` the tables use. Mirrors the backend's NumFmt.icpE8s,
-// which is what the proposal summaries themselves say.
+// fixed-decimal `fmtICP` the tables use. Mirrors the backend's NumFmt.decimal:
+// exact, since no e8s expansion follows here to recover what rounding drops.
 function icp(e8s: bigint): string {
   const whole = e8s / 100_000_000n;
   const frac = (e8s % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '');

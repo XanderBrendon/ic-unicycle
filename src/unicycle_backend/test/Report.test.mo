@@ -26,6 +26,16 @@ test("rose since window start shows positive", func() {
   assert Text.contains(Report.build([(C, rs)], now), #text "3d=+2T (2_000_000_000_000 e12s)");
 });
 
+test("cells round to 2dp; the exact e12s figure follows", func() {
+  let now = 10 * DAY;
+  // balance 3.145678901234T, down 3_000_000_000 (0.003T) since the 1d window start.
+  let rs = [ok(10 * DAY, 3_145_678_901_234), ok(9 * DAY + 1, 3_148_678_901_234), ok(8 * DAY, 5_000_000_000_000)];
+  let r = Report.build([(C, rs)], now);
+  assert Text.contains(r, #text "balance 3.15T (3_145_678_901_234 e12s)");
+  assert Text.contains(r, #text "1d=-<0.01T (3_000_000_000 e12s)");
+  assert Text.contains(r, #text "3d=-1.85T (1_854_321_098_766 e12s)");
+});
+
 test("no successful readings line", func() {
   let r = Report.build([(C, [{ recordedAt = 1; result = #err "x" }])], 10 * DAY);
   assert Text.contains(r, #text "no successful readings yet");

@@ -1,7 +1,7 @@
 // Pure number formatting for human-facing proposal / report text. Each combined
-// form shows a decimal amount followed by the raw integer amount grouped with
+// form shows a 2-decimal amount followed by the raw integer amount grouped with
 // underscores every 3 digits, so voters can read the value and still verify the
-// exact base-unit figure:
+// exact base-unit figure — the parenthesised figure is the precise one:
 //   icpE8s      "20 ICP (2_000_000_000 e8s)"    -- ICP is denominated in e8s
 //   tcyclesE12s "5T (5_000_000_000_000 e12s)"   -- TCycles are e12s, NOT e8s
 import Nat "mo:core/Nat";
@@ -37,13 +37,26 @@ module {
     Nat.toText(whole) # "." # fracText;
   };
 
+  // `decimal` rounded half-up to 2 fraction digits, for the combined forms
+  // below: the exact base-unit figure follows in parentheses, so the decimal
+  // only has to be readable, not complete. A nonzero amount that would round to
+  // zero renders "<0.01" rather than "0", which would read as no change at all.
+  // `decimals` must be >= 2 (8 and 12 here).
+  //   (3_145_678_901_234, 12) -> "3.15"   (3_000_000_000, 12) -> "<0.01"
+  public func decimal2(value : Nat, decimals : Nat) : Text {
+    let drop = 10 ** (decimals - 2 : Nat);
+    let hundredths = (value + drop / 2) / drop;
+    if (hundredths == 0 and value > 0) return "<0.01";
+    decimal(hundredths, 2);
+  };
+
   // ICP amount (e8s): "20 ICP (2_000_000_000 e8s)".
   public func icpE8s(e8s : Nat) : Text {
-    decimal(e8s, 8) # " ICP (" # group(e8s) # " e8s)";
+    decimal2(e8s, 8) # " ICP (" # group(e8s) # " e8s)";
   };
 
   // TCycles amount (e12s): "5T (5_000_000_000_000 e12s)".
   public func tcyclesE12s(cycles : Nat) : Text {
-    decimal(cycles, 12) # "T (" # group(cycles) # " e12s)";
+    decimal2(cycles, 12) # "T (" # group(cycles) # " e12s)";
   };
 };
