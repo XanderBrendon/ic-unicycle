@@ -23,7 +23,7 @@ import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 const backendId = safeGetCanisterEnv()?.["PUBLIC_CANISTER_ID:backend"];
 ```
 
-Note: `safeGetCanisterEnv()` also returns `IC_ROOT_KEY` (as a `Uint8Array`) on local networks, replacing the need for `agent.fetchRootKey()`.
+Note: `safeGetCanisterEnv()` also returns `IC_ROOT_KEY` (as a `Uint8Array`) — the `ic_env` cookie always carries the network's root key, on local networks and mainnet alike. Passing it as the `rootKey` agent option replaces the need for `agent.fetchRootKey()`.
 
 ## Frontend package migration
 
@@ -50,7 +50,11 @@ createActor(canisterId, { agent });
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 const canisterEnv = safeGetCanisterEnv();
 createActor(canisterEnv?.["PUBLIC_CANISTER_ID:backend"], {
-  agentOptions: { host: window.location.origin, rootKey: canisterEnv?.IC_ROOT_KEY }
+  // No host: the agent's default resolves to the page origin on known gateway
+  // hosts (ic0.app, icp0.io, localhost, 127.0.0.1) and to https://icp-api.io
+  // everywhere else — including custom domains, which serve only the HTTP
+  // gateway, not /api/v2. Do not set host: window.location.origin.
+  agentOptions: { rootKey: canisterEnv?.IC_ROOT_KEY }
 });
 ```
 
@@ -93,7 +97,7 @@ Steps:
 |----------|----------|
 | `"type": "rust"` | `recipe.type: "@dfinity/rust@v3.2.0"` |
 | `"type": "motoko"` | `recipe.type: "@dfinity/motoko@v4.1.0"` |
-| `"type": "assets"` | `recipe.type: "@dfinity/asset-canister@v2.2.1"` |
+| `"type": "assets"` | `recipe.type: "@dfinity/static-site@v0.3.3"` (recommended) or `@dfinity/asset-canister@v2.2.1` (legacy). Not a drop-in: static-site is a different canister using `_headers`/`_redirects` (not `.ic-assets.json5`), and switching a deployed canister needs a reinstall — see the `static-site` skill's migration guide. |
 | `"package": "X"` | `recipe.configuration.package: X` |
 | `"candid": "X"` | `recipe.configuration.candid: X` |
 | `"main": "X"` | `recipe.configuration.main: X` |

@@ -83,7 +83,7 @@ Take the perspective of an experienced senior security engineer and carefully re
 
 ## Mistakes That Break Your Build
 
-1. **Deploying canisters in the wrong order.** Canisters with dependencies must be deployed according to their dependencies. Declare `dependencies` in icp.yaml so `icp deploy` orders them correctly.
+1. **Trying to order deployment with a `dependencies` field.** icp.yaml has a `dependencies` field but it is not used to order the deployment — icp-cli builds canisters in parallel, and `icp deploy` injects every canister's ID into every canister as a `PUBLIC_CANISTER_ID:<canister-name>` environment variable, so a canister can discover a sibling's ID at runtime regardless of deploy order. Read it with `Runtime.envVar<system>("PUBLIC_CANISTER_ID:user_service")` in Motoko (motoko-core >= 2.1.0) or `ic_cdk::api::env_var_value("PUBLIC_CANISTER_ID:user_service")` in Rust. See the `icp-cli` skill's Canister Environment Variables section.
 
 2. **Forgetting to generate type declarations for each backend canister.** Use language-specific tooling (e.g., `didc` for Candid bindings) to generate declarations for each backend canister individually.
 
@@ -874,7 +874,7 @@ The factory examples above are intentionally kept simple to demonstrate the cani
 icp deploy user_service
 
 # Rust content_service requires the user_service principal on every upgrade (post_upgrade arg)
-USER_SERVICE_ID=$(icp canister id user_service)
+USER_SERVICE_ID=$(icp canister status user_service --id-only)
 icp deploy content_service --argument "(principal \"$USER_SERVICE_ID\")"
 
 npm run build
@@ -893,7 +893,7 @@ icp network start -d
 icp deploy user_service
 
 # content_service (Rust) requires the user_service canister ID as an init argument
-USER_SERVICE_ID=$(icp canister id user_service)
+USER_SERVICE_ID=$(icp canister status user_service --id-only)
 icp deploy content_service --argument "(principal \"$USER_SERVICE_ID\")"
 
 # Build and deploy frontend
@@ -959,12 +959,12 @@ icp canister call content_service createPost '("Test Title", "Test Body")'
 
 # Create a new identity that is NOT registered
 icp identity new unregistered --storage plaintext
-icp identity use unregistered
+icp identity default unregistered
 icp canister call content_service createPost '("Should Fail", "No user")'
 # Expected: (variant { err = "User not registered" })
 
 # Switch back
-icp identity use default
+icp identity default default
 ```
 
 ### Verify Cross-Canister Query
