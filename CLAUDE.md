@@ -79,6 +79,14 @@ If the client covers most of what you need but is missing a specific piece, narr
 
 `planning/` is a git submodule backed by the private `unicycle_planning` repo. Write specs and design docs under `planning/docs/superpowers/specs/` (alongside the existing ones); do not create a `docs/` tree in the code repo for them. This keeps planning material out of the public codebase.
 
+## 8. Subagents are pre-approved
+
+**Use subagents (the Agent tool) freely whenever they'd help — no need to ask first.**
+
+This is a standing request, so the default "don't use subagents unless the user requested it" instruction is satisfied. Good uses: parallel independent work, broad codebase searches, isolated investigations where you only need the conclusion.
+
+Judgment still applies — a single known file lookup doesn't need an agent. This does not extend to Workflows or deep-research; ask for those.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
