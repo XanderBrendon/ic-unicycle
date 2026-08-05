@@ -16,6 +16,9 @@ import { createUnicycleBackendActor } from '../auth/actor';
 import {
   RemoveCanisterError,
   SuspendCanisterError,
+  type BatchTrackEntry,
+  type BatchTrackEntryResult,
+  type BatchTrackError,
   type CanisterConfig,
 } from '../bindings/unicycle_backend/unicycle_backend';
 import { formatUpsertCanisterError } from './useUpsertCanister';
@@ -25,6 +28,8 @@ import type { FleetCanister } from './useFleet';
 const NICKNAME_MAX = 48;
 const DEFAULT_MIN_TC = '1';
 const DEFAULT_TOPUP_TC = '0.5';
+// Entries per batch call — must match BatchTrack.MAX_ENTRIES in the backend.
+const MAX_BATCH_ENTRIES = 100;
 
 type RowState = 'tracked' | 'suspended' | 'untracked';
 
@@ -41,7 +46,6 @@ interface Row {
 }
 
 type RowResult = { ok: true } | { ok: false; error: string };
-type Backend = ReturnType<typeof createUnicycleBackendActor>;
 
 function removeErrMsg(err: RemoveCanisterError): string {
   switch (err) {
@@ -74,35 +78,45 @@ function rowInvalid(r: Row): boolean {
   return !min || min <= 0n || !top || top <= 0n;
 }
 
-// Apply one row's desired state and return both the outcome and the state that
-// actually persisted, so a retry after a partial failure converges.
-async function applyRow(
-  backend: Backend,
-  actingAs: Principal | null,
-  r: Row,
-): Promise<RowResult & { tracked: boolean; suspended: boolean }> {
-  const id = r.entry.canisterId;
-  if (r.state === 'untracked') {
-    if (!r.tracked) return { ok: true, tracked: false, suspended: false };
-    try {
-      const res = actingAs
-        ? await backend.asSnsRemoveCanister(actingAs, id)
-        : await backend.removeCanister(id);
-      if (res.__kind__ === 'ok') return { ok: true, tracked: false, suspended: false };
-      return { ok: false, error: removeErrMsg(res.err), tracked: r.tracked, suspended: r.suspended };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: r.tracked, suspended: r.suspended };
-    }
+function batchErrMsg(err: BatchTrackError): string {
+  switch (err.__kind__) {
+    case 'anonymous':
+      return "You're not signed in.";
+    case 'rateLimited':
+      return 'The service is busy — try again in a moment.';
+    case 'tooManyEntries':
+      return `Too many canisters in one request (max ${err.tooManyEntries.max}).`;
+    case 'duplicateEntry':
+      return `The same canister appears twice: ${fmtPid(err.duplicateEntry.canisterId.toText())}.`;
   }
+}
 
-  // Tracked or suspended → upsert config first (creates the tracking entry).
+// One entry's outcome as a row error, or null when it landed.
+function entryErrMsg(res: BatchTrackEntryResult, id: Principal): string | null {
+  switch (res.__kind__) {
+    case 'ok':
+      return null;
+    case 'upsertErr':
+      return formatUpsertCanisterError(res.upsertErr, id).message;
+    case 'suspendErr':
+      return suspendErrMsg(res.suspendErr);
+    case 'untrackErr':
+      return removeErrMsg(res.untrackErr);
+  }
+}
+
+// The batch entry for one row, or null when the row has no work to do. Rows
+// that are untracked AND were never tracked are pure no-ops — sending them
+// would only consume the call's payload budget.
+function toEntry(r: Row): BatchTrackEntry | null {
+  const canisterId = r.entry.canisterId;
+  if (r.state === 'untracked') {
+    return r.tracked ? { canisterId, intent: { __kind__: 'untrack', untrack: null } } : null;
+  }
   const min = parseDecimalAmount(r.min, TCYCLES_DECIMALS);
   const top = parseDecimalAmount(r.topup, TCYCLES_DECIMALS);
-  let curTracked = r.tracked;
-  const curSuspended = r.suspended;
-  if (!min || !top) {
-    return { ok: false, error: 'Invalid min or top-up amount.', tracked: curTracked, suspended: curSuspended };
-  }
+  // Save is gated on rowInvalid, so this is belt-and-braces.
+  if (!min || !top) return null;
   const config: CanisterConfig = {
     minCycleBalance: min,
     cycleTopUpAmount: top,
@@ -110,34 +124,16 @@ async function applyRow(
     nickname: r.name.trim().slice(0, NICKNAME_MAX) || undefined,
     snsRoot: undefined,
   };
-  try {
-    const res = actingAs
-      ? await backend.asSnsUpsertCanister(actingAs, id, config)
-      : await backend.upsertCanister(id, config);
-    if (res.__kind__ !== 'ok') {
-      return { ok: false, error: formatUpsertCanisterError(res.err, id).message, tracked: curTracked, suspended: curSuspended };
-    }
-    curTracked = true;
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: curTracked, suspended: curSuspended };
-  }
+  return {
+    canisterId,
+    intent: { __kind__: 'track', track: { config, suspended: r.state === 'suspended' } },
+  };
+}
 
-  // Reconcile suspension only when it differs from what's already on-chain
-  // (suspension is a separate call — the upsert's suspendedUntil is ignored).
-  const wantSuspended = r.state === 'suspended';
-  if (wantSuspended !== curSuspended) {
-    try {
-      const res = actingAs
-        ? await backend.asSnsSetCanisterSuspended(actingAs, id, wantSuspended)
-        : await backend.setCanisterSuspended(id, wantSuspended);
-      if (res.__kind__ !== 'ok') {
-        return { ok: false, error: suspendErrMsg(res.err), tracked: curTracked, suspended: curSuspended };
-      }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e), tracked: curTracked, suspended: curSuspended };
-    }
-  }
-  return { ok: true, tracked: curTracked, suspended: wantSuspended };
+function chunk<T>(xs: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
 }
 
 const STATE_OPTS: Array<{ v: RowState; label: string; color: string }> = [
@@ -248,14 +244,58 @@ export function GroupEditModal({
     setPhase('saving');
     setTopError(null);
     const backend = createUnicycleBackendActor(identity);
+
+    // Keep rows paired with their entries so the positional mapping back from
+    // the response stays honest.
+    const paired = rows.map((row) => ({ row, entry: toEntry(row) }));
+    const work = paired.filter((p): p is { row: Row; entry: BatchTrackEntry } => p.entry !== null);
+
     const next: Record<string, RowResult> = {};
     const persisted: Record<string, { tracked: boolean; suspended: boolean }> = {};
     let anyFail = false;
-    for (const r of rows) {
-      const res = await applyRow(backend, actingAs, r);
-      persisted[r.idText] = { tracked: res.tracked, suspended: res.suspended };
-      next[r.idText] = res.ok ? { ok: true } : { ok: false, error: res.error };
-      if (!res.ok) anyFail = true;
+
+    // Rows with no entry are already in their desired state (untracked and
+    // never tracked). They send nothing, but they did succeed.
+    for (const { row, entry } of paired) {
+      if (entry === null) next[row.idText] = { ok: true };
+    }
+
+    for (const batch of chunk(work, MAX_BATCH_ENTRIES)) {
+      let results: BatchTrackEntryResult[] | null = null;
+      let callError = '';
+      try {
+        const res = actingAs
+          ? await backend.asSnsBatchTrackCanisters(actingAs, batch.map((b) => b.entry))
+          : await backend.batchTrackCanisters(batch.map((b) => b.entry));
+        if (res.__kind__ === 'ok') results = res.ok;
+        else callError = batchErrMsg(res.err);
+      } catch (e) {
+        callError = e instanceof Error ? e.message : String(e);
+      }
+
+      for (const [i, { row }] of batch.entries()) {
+        // A whole-call failure means nothing in this chunk ran: every row keeps
+        // the state it had, and every row is flagged.
+        const res = results?.[i];
+        const err = res ? entryErrMsg(res, row.entry.canisterId) : callError;
+        if (err === null) {
+          next[row.idText] = { ok: true };
+          persisted[row.idText] =
+            row.state === 'untracked'
+              ? { tracked: false, suspended: false }
+              : { tracked: true, suspended: row.state === 'suspended' };
+        } else {
+          anyFail = true;
+          next[row.idText] = { ok: false, error: err };
+          // A suspendErr means the config DID land and only the suspension
+          // toggle failed — record that, or a later Untrack on this row would
+          // send nothing and leave it tracked on-chain.
+          persisted[row.idText] =
+            res?.__kind__ === 'suspendErr'
+              ? { tracked: true, suspended: row.suspended }
+              : { tracked: row.tracked, suspended: row.suspended };
+        }
+      }
     }
     setResults(next);
     if (anyFail) {
