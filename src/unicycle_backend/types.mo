@@ -242,6 +242,13 @@ module {
     snsRoot : ?Principal;
   };
 
+  // Which source last produced a successful cycle reading for a canister — the
+  // SNS root's canisters summary, or the blackhole. Stored per canister id in
+  // `readSource` (main.mo) and used to try the likely source first. Not part of
+  // any record already inside a Map: it is the value type of its own new
+  // top-level map, so it needs no migration.
+  public type ReadSource = { #snsRoot; #blackhole };
+
   public type UpsertCanisterError = {
     #anonymous;
     #zeroMinCycleBalance;
