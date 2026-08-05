@@ -81,16 +81,27 @@ test("mergeConfig with no prior -> null snsRoot", func() {
 });
 
 test("stampedWith picks only entries stamped with the given root", func() {
-  let entries : [(Principal, Cfg)] = [
-    (canX, stamped(?rootA)),
-    (canY, stamped(?rootB)),
-    (rootA, stamped(null)),
+  let entries : [(Principal, Cfg, Tracking.ReadSource)] = [
+    (canX, stamped(?rootA), #snsRoot),
+    (canY, stamped(?rootB), #snsRoot),
+    (rootA, stamped(null), #blackhole),
   ];
-  let hits = Tracking.stampedWith(entries, rootA);
-  assert hits == [canX];
+  assert Tracking.stampedWith(entries, rootA) == [canX];
+});
+
+test("stampedWith skips entries that have flipped to the blackhole", func() {
+  // Same stamp, but this canister now reads via the blackhole: it left the DAO
+  // and no longer depends on the SNS association, so untracking the SNS must
+  // not drop it.
+  let entries : [(Principal, Cfg, Tracking.ReadSource)] = [
+    (canX, stamped(?rootA), #snsRoot),
+    (canY, stamped(?rootA), #blackhole),
+  ];
+  assert Tracking.stampedWith(entries, rootA) == [canX];
 });
 
 test("stampedWith on empty / no-match -> empty", func() {
-  assert Tracking.stampedWith([], rootA) == [];
-  assert Tracking.stampedWith([(canX, stamped(null))], rootA) == [];
+  let none : [(Principal, Cfg, Tracking.ReadSource)] = [];
+  assert Tracking.stampedWith(none, rootA) == [];
+  assert Tracking.stampedWith([(canX, stamped(null), #snsRoot)], rootA) == [];
 });

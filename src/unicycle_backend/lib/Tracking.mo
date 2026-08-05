@@ -12,7 +12,12 @@ import List "mo:core/List";
 //   * mergeConfig preserves the prior snsRoot too (discarding the incoming one);
 //     upsertCanisterFor's verification outcome then overrides it, making that
 //     verification the only effective writer of the stamp.
+//   * stampedWith selects only entries still READ through the root, so the
+//     removeTrackedSns cascade never drops an entry that has flipped to the
+//     blackhole.
 module {
+  public type ReadSource = Types.ReadSource;
+
   public type TopUpDecision = { #remove; #topUp : Nat; #skip };
 
   // The single three-way suspension/threshold branch used by both the
@@ -44,11 +49,18 @@ module {
     };
   };
 
-  // The user-tracked-SNS cascade selection: ids of entries stamped with `root`.
-  public func stampedWith(entries : [(Principal, Types.CanisterConfig)], root : Principal) : [Principal] {
+  // The user-tracked-SNS cascade selection: ids of entries stamped with `root`
+  // that are STILL read through it. An entry that has flipped to `#blackhole`
+  // left the DAO but remains readable on its own, so untracking the SNS leaves
+  // it tracked rather than silently dropping a canister the user can still
+  // legitimately fund.
+  public func stampedWith(
+    entries : [(Principal, Types.CanisterConfig, Types.ReadSource)],
+    root : Principal,
+  ) : [Principal] {
     let acc = List.empty<Principal>();
-    for ((id, cfg) in entries.vals()) {
-      if (cfg.snsRoot == ?root) { acc.add(id) };
+    for ((id, cfg, src) in entries.vals()) {
+      if (cfg.snsRoot == ?root and src == #snsRoot) { acc.add(id) };
     };
     acc.toArray();
   };
