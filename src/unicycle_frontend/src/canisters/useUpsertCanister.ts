@@ -9,6 +9,11 @@ export type UpsertCanisterStatus =
   | { kind: 'idle' }
   | { kind: 'submitting' }
   | { kind: 'success'; canisterId: string }
+  // The canister is readable but outside the DAO's control set, so registering
+  // it needs an SNS vote. Distinct from 'error' because there IS an action.
+  | { kind: 'needsProposal'; canisterId: string; message: string }
+  | { kind: 'proposing' }
+  | { kind: 'proposed'; proposalId: bigint }
   // `detail` is the de-emphasized technical tail; `command` is an optional
   // copy-pasteable shell command that fixes the error.
   | { kind: 'error'; message: string; detail?: string; command?: string };
@@ -32,12 +37,22 @@ export type UpsertCanisterResult =
   | { ok: true }
   | { ok: false; message: string; detail?: string };
 
+export type ProposeUpsertResult =
+  | { ok: true; proposalId: bigint }
+  | { ok: false; message: string };
+
 export interface UseUpsertCanisterResult {
   status: UpsertCanisterStatus;
   upsertCanister: (
     canisterId: Principal,
     config: UpsertCanisterArgs,
   ) => Promise<UpsertCanisterResult>;
+  // Only meaningful when acting as an SNS: submits the tracking proposal an
+  // admin cannot perform directly. Reachable from the 'needsProposal' status.
+  proposeUpsert: (
+    canisterId: Principal,
+    config: UpsertCanisterArgs,
+  ) => Promise<ProposeUpsertResult>;
   reset: () => void;
 }
 
@@ -153,6 +168,14 @@ export function useUpsertCanister(
           return { ok: true };
         } else {
           const formatted = formatUpsertCanisterError(result.err, canisterId);
+          if (result.err.__kind__ === 'requiresProposal') {
+            setStatus({
+              kind: 'needsProposal',
+              canisterId: canisterId.toString(),
+              message: formatted.message,
+            });
+            return { ok: false, message: formatted.message };
+          }
           setStatus({ kind: 'error', ...formatted });
           return { ok: false, message: formatted.message, detail: formatted.detail };
         }
@@ -165,5 +188,31 @@ export function useUpsertCanister(
     [identity, onSuccess, actAs],
   );
 
-  return { status, upsertCanister, reset };
+  const proposeUpsert = useCallback(
+    async (canisterId: Principal, config: UpsertCanisterArgs): Promise<ProposeUpsertResult> => {
+      if (!identity || !actAs) {
+        const message = 'Submitting a proposal requires acting as an SNS.';
+        setStatus({ kind: 'error', message });
+        return { ok: false, message };
+      }
+      setStatus({ kind: 'proposing' });
+      try {
+        const backend = createUnicycleBackendActor(identity);
+        const res = await backend.asSnsProposeUpsertCanister(actAs, { canisterId, config });
+        if (res.__kind__ === 'ok') {
+          setStatus({ kind: 'proposed', proposalId: res.ok });
+          return { ok: true, proposalId: res.ok };
+        }
+        setStatus({ kind: 'error', message: res.err });
+        return { ok: false, message: res.err };
+      } catch (e) {
+        const err = unexpectedError('submit the proposal', e);
+        setStatus({ kind: 'error', ...err });
+        return { ok: false, message: err.message };
+      }
+    },
+    [identity, actAs],
+  );
+
+  return { status, upsertCanister, proposeUpsert, reset };
 }

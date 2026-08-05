@@ -36,7 +36,7 @@ export interface AddCanisterModalProps {
 
 export function AddCanisterModal({ identity, actingAs, onClose, onAdded }: AddCanisterModalProps) {
   const toast = useToast();
-  const { upsertCanister, status } = useUpsertCanister(identity, undefined, actingAs);
+  const { upsertCanister, proposeUpsert, status } = useUpsertCanister(identity, undefined, actingAs);
   const { blackhole } = useServiceConfig(identity);
   const [id, setId] = useState('');
   const [name, setName] = useState('');
@@ -70,6 +70,27 @@ export function AddCanisterModal({ identity, actingAs, onClose, onAdded }: AddCa
     }
   };
 
+  const propose = async () => {
+    if (!canisterId || !minRaw || !topupRaw) return;
+    const label = name.trim().slice(0, NICKNAME_MAX);
+    const res = await proposeUpsert(canisterId, {
+      minCycleBalance: minRaw,
+      cycleTopUpAmount: topupRaw,
+      suspendedUntil: undefined,
+      nickname: label || undefined,
+      snsRoot: undefined,
+    });
+    if (res.ok) {
+      toast(
+        <>
+          <Icon name="check" size={14} style={{ color: 'var(--accent-ink)' }} />
+          Proposal <b>#{res.proposalId.toString()}</b> submitted
+        </>,
+      );
+      onAdded();
+    }
+  };
+
   return (
     <Modal
       title="Track a canister"
@@ -81,10 +102,20 @@ export function AddCanisterModal({ identity, actingAs, onClose, onAdded }: AddCa
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn accent" disabled={!valid || submitting} onClick={submit}>
-            <Icon name="plus" size={14} />
-            {submitting ? 'Tracking…' : 'Track'}
-          </button>
+          {status.kind === 'needsProposal' ? (
+            <button className="btn accent" onClick={propose}>
+              Create proposal
+            </button>
+          ) : (
+            <button
+              className="btn accent"
+              disabled={!valid || submitting || status.kind === 'proposing'}
+              onClick={submit}
+            >
+              <Icon name="plus" size={14} />
+              {submitting ? 'Tracking…' : 'Track'}
+            </button>
+          )}
         </>
       }
     >
@@ -145,7 +176,19 @@ export function AddCanisterModal({ identity, actingAs, onClose, onAdded }: AddCa
             </div>
           </Field>
         </div>
-        {status.kind === 'error' && <ErrorHint message={status.message} detail={status.detail} command={status.command} />}
+        {status.kind === 'needsProposal' && (
+          <div className="hint" style={{ display: 'grid', gap: 8 }}>
+            <span>{status.message}</span>
+            <span className="faint" style={{ fontSize: 11.5 }}>
+              Unicycle will submit the proposal through this SNS's proposal neuron. Tracking starts
+              only if voters adopt it.
+            </span>
+          </div>
+        )}
+        {status.kind === 'proposing' && <span className="faint">Submitting proposal…</span>}
+        {status.kind === 'error' && (
+          <ErrorHint message={status.message} detail={status.detail} command={status.command} />
+        )}
       </div>
     </Modal>
   );
