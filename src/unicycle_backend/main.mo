@@ -908,6 +908,9 @@ persistent actor class Unicycle(
     };
     if (not stillTracked) {
       ignore cycleHistory.delete(canisterId);
+      // Same lifetime as the shared readings: the remembered source describes
+      // the canister, so it goes when the last owner stops tracking it.
+      ignore readSource.delete(canisterId);
     };
   };
 
@@ -3996,11 +3999,15 @@ persistent actor class Unicycle(
     let stamped = switch (tracked.get(caller)) {
       case null { [] };
       case (?userMap) {
-        // Every stamped entry still reads through its root here: `readSource`
-        // does not exist yet, so there is nothing that could have flipped.
-        // Replaced by the real per-entry lookup once it does.
+        // Pair each entry with the source it currently reads through, so the
+        // cascade can spare entries that have flipped to the blackhole — those
+        // left the DAO but are still readable on their own, and dropping them
+        // would silently untrack a canister the user can legitimately keep
+        // funding.
         let withSource = List.empty<(Principal, CanisterConfig, Types.ReadSource)>();
-        for ((id, cfg) in userMap.entries()) { withSource.add((id, cfg, #snsRoot)) };
+        for ((id, cfg) in userMap.entries()) {
+          withSource.add((id, cfg, ReadRoute.primaryFor(readSource.get(id), candidateRootFor(caller, cfg))));
+        };
         Tracking.stampedWith(withSource.toArray(), root);
       };
     };
