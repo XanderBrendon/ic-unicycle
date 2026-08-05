@@ -38,6 +38,7 @@ import Report "lib/Report";
 import NumFmt "lib/NumFmt";
 import RateLimit "lib/RateLimit";
 import TokenBucket "lib/TokenBucket";
+import BatchTrack "lib/BatchTrack";
 import Tunables "lib/Tunables";
 import SnsWithdraw "lib/SnsWithdraw";
 import SnsDeregister "lib/SnsDeregister";
@@ -63,6 +64,9 @@ persistent actor class Unicycle(
   public type RecordCyclesError = Types.RecordCyclesError;
   public type SuspendCanisterError = Types.SuspendCanisterError;
   public type RemoveCanisterError = Types.RemoveCanisterError;
+  public type BatchTrackEntry = Types.BatchTrackEntry;
+  public type BatchTrackEntryResult = Types.BatchTrackEntryResult;
+  public type BatchTrackError = Types.BatchTrackError;
   public type AddTrackedSnsError = Types.AddTrackedSnsError;
   public type RemoveTrackedSnsError = Types.RemoveTrackedSnsError;
   public type AdminRemoveCanisterError = Types.AdminRemoveCanisterError;
@@ -512,6 +516,16 @@ persistent actor class Unicycle(
   transient let GLOBAL_BUCKET_REFILL_INTERVAL_NS : Tunables.Spec =
     { key = "globalBucketRefillIntervalNs"; defaultValue = 1_000_000_000; min = 100_000_000; max = 60_000_000_000 }; // 1 token/sec → ~60/min
   transient var globalBucket : TokenBucket.Bucket = TokenBucket.init(tunable(GLOBAL_BUCKET_CAPACITY));
+
+  // Flat cost of one batch tracking call, regardless of entry count. The bucket
+  // above bounds backend-paid OUTBOUND calls, and a batch makes at most two in
+  // the common path — one SNS canisters summary plus one batched blackhole read
+  // — however many canisters it carries. The plain-user fallback can add one
+  // list_sns_canisters per tracked root, but that is bounded per USER
+  // (maxTrackedSnsPerUser), not per entry. A single upsertCanister can already
+  // trigger up to 17 outbound calls for one token, so per token a batch is
+  // strictly less amplifying than the calls it replaces.
+  transient let BATCH_TOKEN_COST : Nat = 4;
 
   // Throttle the live SNS-Wasm registry refresh triggered on a `resolveSnsRoot`
   // cache miss (DOS-3/AUTH-6): repeated misses from unrecognized/rotating
@@ -3241,6 +3255,244 @@ persistent actor class Unicycle(
     await upsertCanisterFor(caller, canisterId, config, #user);
   };
 
+  // Apply many canisters' desired tracking state in one call. The point is the
+  // probes: upsertCanisterFor pays 1-2 outbound calls PER canister, and those
+  // are redundant across a batch — one SNS canisters summary answers every
+  // canister under that root, and the blackhole already exposes a batched
+  // canisterStatuses. setCanisterSuspendedFor and removeCanisterFor are
+  // synchronous, so the probes are the only awaits in the whole operation.
+  public shared ({ caller }) func batchTrackCanisters(
+    entries : [BatchTrackEntry]
+  ) : async Result.Result<[BatchTrackEntryResult], BatchTrackError> {
+    await batchTrackCanistersFor(caller, entries, #user);
+  };
+
+  public shared ({ caller }) func asSnsBatchTrackCanisters(
+    root : Principal,
+    entries : [BatchTrackEntry],
+  ) : async Result.Result<[BatchTrackEntryResult], BatchTrackError> {
+    requireSnsAdmin(caller, root, "asSnsBatchTrackCanisters");
+    await batchTrackCanistersFor(root, entries, #snsAdmin);
+  };
+
+  func batchTrackCanistersFor(
+    owner : Principal,
+    entries : [BatchTrackEntry],
+    origin : ReadRoute.UpsertOrigin,
+  ) : async Result.Result<[BatchTrackEntryResult], BatchTrackError> {
+    if (owner.isAnonymous()) return #err(#anonymous);
+    // An empty batch does nothing, so it costs nothing.
+    if (entries.size() == 0) return #ok([]);
+    // Size FIRST: findDuplicate's scan is quadratic.
+    if (entries.size() > BatchTrack.MAX_ENTRIES) {
+      return #err(#tooManyEntries { max = BatchTrack.MAX_ENTRIES; got = entries.size() });
+    };
+    switch (BatchTrack.findDuplicate(entries)) {
+      case (?canisterId) { return #err(#duplicateEntry { canisterId }) };
+      case null {};
+    };
+    if (not consumeGlobalTokens(BATCH_TOKEN_COST)) return #err(#rateLimited);
+
+    // Pre-probe verdicts. Everything decidable without an outbound call is
+    // decided here, so the probe set carries only entries that can still land.
+    let ownerMap = tracked.get(owner);
+    let isTracked = func(id : Principal) : Bool {
+      switch (ownerMap) { case null { false }; case (?m) { m.get(id) != null } };
+    };
+    let caps : BatchTrack.Caps = {
+      ownerIsNew = (switch (ownerMap) { case null { true }; case (?_) { false } });
+      ownerCount = tracked.size();
+      maxOwners = settings.maxOwners;
+      trackedCount = (switch (ownerMap) { case null { 0 }; case (?m) { m.size() } });
+      maxCanistersPerOwner = settings.maxCanistersPerOwner;
+    };
+    let verdicts = BatchTrack.precheck(entries, isTracked, caps);
+    let toProbe = BatchTrack.probeIds(entries, verdicts);
+
+    // ---- The only awaits in this function. ----
+    let inSummary = Set.empty<Principal>(); // the SNS canisters summary lists it
+    let readable = Set.empty<Principal>(); // the blackhole answered for it
+    let unreadable = Map.empty<Principal, Text>(); // ...or said why it could not
+    let stampRoot = Map.empty<Principal, Principal>(); // user path: matched root
+    let ownerIsRoot = isKnownSnsRoot(owner);
+
+    if (ownerIsRoot) {
+      // ONE summary for the whole batch: snsSummaryHas refetches it per id.
+      switch (await snsRootCycles(owner)) {
+        case (#ok pairs) { for ((id, _) in pairs.vals()) { inSummary.add(id) } };
+        case (#err _) {};
+      };
+      let need = List.empty<Principal>();
+      for (id in toProbe.vals()) { if (not inSummary.contains(id)) { need.add(id) } };
+      await probeBlackholeBatch(need.toArray(), readable, unreadable);
+    } else {
+      await probeBlackholeBatch(toProbe, readable, unreadable);
+      // Ids the blackhole could not answer fall back to the owner's tracked SNS
+      // roots. trackedSnsMatch refetches every root's listing per canister; here
+      // each listing is fetched ONCE and matched against every unresolved id.
+      let unresolved = List.empty<Principal>();
+      for (id in toProbe.vals()) { if (not readable.contains(id)) { unresolved.add(id) } };
+      if (unresolved.size() > 0) {
+        let roots = switch (userTrackedSnsRoots.get(owner)) {
+          case null { [] };
+          case (?s) { s.values().toArray() };
+        };
+        for (root in roots.vals()) {
+          let listing = try { ?(await snsRoot(root).list_sns_canisters({})) } catch (_) { null };
+          switch (listing) {
+            case (?res) {
+              for (id in unresolved.values()) {
+                if (stampRoot.get(id) == null and SnsCanisters.contains(res, id)) {
+                  stampRoot.add(id, root);
+                };
+              };
+            };
+            case null {};
+          };
+        };
+      };
+    };
+
+    // ---- Apply, in input order. No awaits past this point. ----
+    let out = List.empty<BatchTrackEntryResult>();
+    var i = 0;
+    while (i < entries.size()) {
+      let e = entries[i];
+      let id = e.canisterId;
+      switch (verdicts[i]) {
+        case (?err) { out.add(#upsertErr(err)) };
+        case null {
+          switch (e.intent) {
+            case (#untrack) {
+              switch (removeCanisterFor(owner, id)) {
+                case (#ok) { out.add(#ok) };
+                // Already untracked: the desired end state is satisfied.
+                case (#err(#notTracked)) { out.add(#ok) };
+                case (#err other) { out.add(#untrackErr(other)) };
+              };
+            };
+            case (#track t) {
+              // Re-read `tracked` after the probes: it can move while they are
+              // in flight, so precheck's cap is only a gate. Same pre-gate /
+              // post-await-recheck split as upsertCanisterFor.
+              let liveMap = tracked.get(owner);
+              let alreadyTracked = switch (liveMap) {
+                case null { false };
+                case (?m) { m.get(id) != null };
+              };
+              let liveCount = switch (liveMap) { case null { 0 }; case (?m) { m.size() } };
+              if (not alreadyTracked and liveCount >= settings.maxCanistersPerOwner) {
+                out.add(#upsertErr(#canisterLimitReached { maxCanistersPerOwner = settings.maxCanistersPerOwner }));
+              } else {
+                // Verification. An SNS-owned entry goes through ReadRoute.gate;
+                // a plain user keeps its own blackhole -> tracked-SNS ladder
+                // (ReadRoute.gate is documented as never seeing `#user`).
+                let decision : Result.Result<(Types.ReadSource, ?Principal), UpsertCanisterError> = if (ownerIsRoot) {
+                  let seen = inSummary.contains(id);
+                  // blackholeOk is "in the summary, or the probe answered" — the
+                  // derivation ReadRoute.gate's inputs assume.
+                  let bhOk = seen or readable.contains(id);
+                  switch (ReadRoute.gate(origin, alreadyTracked, seen, bhOk)) {
+                    case (#allow src) { #ok((src, null)) };
+                    case (#requiresProposal) { #err(#requiresProposal { canisterId = id }) };
+                    case (#unverifiable) {
+                      #err(
+                        #snsRootNotController {
+                          snsRootCanisterId = owner;
+                          blackholeCanisterId = blackholeId;
+                          reason = "not in the SNS canisters summary, and the blackhole is not a controller";
+                        }
+                      );
+                    };
+                  };
+                } else if (readable.contains(id)) {
+                  #ok((#blackhole, null));
+                } else {
+                  switch (stampRoot.get(id)) {
+                    case (?root) { #ok((#snsRoot, ?root)) };
+                    case null {
+                      let reason = switch (unreadable.get(id)) {
+                        case (?r) { r };
+                        case null { "blackhole did not answer" };
+                      };
+                      #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
+                    };
+                  };
+                };
+                switch (decision) {
+                  case (#err err) { out.add(#upsertErr(err)) };
+                  case (#ok(verifiedSource, verifiedSnsRoot)) {
+                    let userMap = switch (tracked.get(owner)) {
+                      case (?m) m;
+                      case null {
+                        let fresh = Map.empty<Principal, CanisterConfig>();
+                        tracked.add(owner, fresh);
+                        fresh;
+                      };
+                    };
+                    let prior = userMap.get(id);
+                    let merged = Tracking.mergeConfig(prior, t.config);
+                    let stored = { merged with snsRoot = verifiedSnsRoot };
+                    userMap.add(id, stored);
+                    readSource.add(id, verifiedSource);
+                    log(#info, #topUp, "batchTrackCanisters " # id.toText() # " " # debug_show prior # " -> " # debug_show stored, ?owner);
+                    // Suspension has its own writer (mergeConfig preserves the
+                    // prior value), so reconcile it only when it differs.
+                    let isSuspended = stored.suspendedUntil != null;
+                    if (t.suspended != isSuspended) {
+                      switch (setCanisterSuspendedFor(owner, id, t.suspended)) {
+                        case (#ok) { out.add(#ok) };
+                        case (#err se) { out.add(#suspendErr(se)) };
+                      };
+                    } else { out.add(#ok) };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+      i += 1;
+    };
+    #ok(out.toArray());
+  };
+
+  // One batched blackhole read for the whole batch: records every id that
+  // answered in `readable` and the reason for every id that did not in
+  // `unreadable`. Mirrors readViaBlackhole's handling of a failed, short, or
+  // per-id-erroring response. A no-op on an empty id list.
+  func probeBlackholeBatch(
+    ids : [Principal],
+    readable : Set.Set<Principal>,
+    unreadable : Map.Map<Principal, Text>,
+  ) : async () {
+    if (ids.size() == 0) return;
+    let outcome = try {
+      #ok(await blackhole().canisterStatuses(ids, settings.batchSize));
+    } catch (e) {
+      #err("blackhole unreachable: " # e.message());
+    };
+    switch (outcome) {
+      case (#err msg) { for (id in ids.vals()) { unreadable.add(id, msg) } };
+      case (#ok(#err msg)) { for (id in ids.vals()) { unreadable.add(id, msg) } };
+      case (#ok(#ok results)) {
+        var i = 0;
+        while (i < ids.size()) {
+          if (i < results.size()) {
+            switch (results[i]) {
+              case (#ok _) { readable.add(ids[i]) };
+              case (#err msg) { unreadable.add(ids[i], msg) };
+            };
+          } else {
+            // A short response is the blackhole's problem, not the caller's.
+            unreadable.add(ids[i], "blackhole returned no status for this canister");
+          };
+          i += 1;
+        };
+      };
+    };
+  };
+
   // Keep the blackhole controllership precondition isolated in this one helper:
   // US23 branches here (blackhole vs. SNS-root controllership) without touching
   // either the public method or the SNS twin. `enforceGlobalLimit` is true for
@@ -3468,19 +3720,23 @@ persistent actor class Unicycle(
     await recordCyclesNowFor(caller, canisterId, true);
   };
 
-  // Spend one global token (DOS-2). Synchronous — the bucket read-modify-write
-  // is atomic against concurrent callers (no `await` between). Returns false
-  // when the aggregate rate cap is hit; callers map that to `#rateLimited`.
-  func consumeGlobalToken() : Bool {
-    let (next, granted) = TokenBucket.tryConsume(
+  // Spend `n` global tokens (DOS-2), all or nothing. Synchronous — the bucket
+  // read-modify-write is atomic against concurrent callers (no `await`
+  // between). Returns false when the aggregate rate cap is hit; callers map
+  // that to `#rateLimited`.
+  func consumeGlobalTokens(n : Nat) : Bool {
+    let (next, granted) = TokenBucket.tryConsumeN(
       globalBucket,
       tunable(GLOBAL_BUCKET_CAPACITY),
       tunable(GLOBAL_BUCKET_REFILL_INTERVAL_NS),
       Int.abs(Time.now()),
+      n,
     );
     globalBucket := next;
     granted;
   };
+
+  func consumeGlobalToken() : Bool = consumeGlobalTokens(1);
 
   // Enforce the todo-24 manual-check rate cap for `account` against `canisterId`
   // and, if allowed, record the attempt. Synchronous (no `await`) so the
@@ -5556,6 +5812,12 @@ persistent actor class Unicycle(
   // traps on decode inside the method (before the todo-24 rate limiter sees it).
   transient let MAX_INGRESS_ARG_BYTES : Nat = 4_096; // 4 KiB
 
+  // The batch tracking methods carry up to BatchTrack.MAX_ENTRIES entries, so
+  // the 4 KiB cap above would reject legitimate calls. 100 entries at a
+  // worst-case ~120 bytes is ~12 KiB; 32 KiB leaves headroom while still
+  // bounding what an identity-passing caller can force the canister to ingest.
+  transient let MAX_BATCH_INGRESS_ARG_BYTES : Nat = 32_768; // 32 KiB
+
   system func inspect(
     {
       caller : Principal;
@@ -5590,6 +5852,7 @@ persistent actor class Unicycle(
         #adminSnsSetup : Any;
         #adminSubmitSnsTestMotion : Any;
         #amIAdmin : Any;
+        #asSnsBatchTrackCanisters : Any;
         #asSnsGetCanisterHistory : Any;
         #asSnsGetFleetSummary : Any;
         #asSnsGetTrackedCanisters : Any;
@@ -5601,6 +5864,7 @@ persistent actor class Unicycle(
         #asSnsRemoveCanister : Any;
         #asSnsSetCanisterSuspended : Any;
         #asSnsUpsertCanister : Any;
+        #batchTrackCanisters : Any;
         #deposit : Any;
         #getAdmins : Any;
         #getAdminSettings : Any;
@@ -5672,7 +5936,13 @@ persistent actor class Unicycle(
       };
     }
   ) : Bool {
-    if (arg.size() > MAX_INGRESS_ARG_BYTES) return false;
+    // Per-method arg cap: the batch methods legitimately carry many entries,
+    // everything else stays on the tight global bound.
+    let maxArg = switch (msg) {
+      case (#batchTrackCanisters _ or #asSnsBatchTrackCanisters _) { MAX_BATCH_INGRESS_ARG_BYTES };
+      case (_) { MAX_INGRESS_ARG_BYTES };
+    };
+    if (arg.size() > maxArg) return false;
 
     switch (msg) {
       // Admin-only: mirror the internal `isAdmin(caller)` gate.
@@ -5722,6 +5992,7 @@ persistent actor class Unicycle(
         or #asSnsSetCanisterSuspended _ or #asSnsRemoveCanister _ or #asSnsRecordCyclesNow _
         or #asSnsProposeSetDepositConfig _ or #asSnsProposeSetReportConfig _
         or #asSnsProposeSetDrainAlertConfig _ or #asSnsProposeUpsertCanister _
+        or #batchTrackCanisters _ or #asSnsBatchTrackCanisters _
       ) { not caller.isAnonymous() };
 
       // Queries never reach inspect; public SNS reads / `*Validate` twins accept.
