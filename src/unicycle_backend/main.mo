@@ -2661,48 +2661,75 @@ persistent actor class Unicycle(
   };
 
   func checkCanister(owner : Principal, canisterId : Principal) : async () {
-    // Same routing rule as runCycleSweep: owner-is-root or a stamped entry
-    // reads via the SNS root summary; only genuinely blackholed entries go to
-    // the blackhole.
-    let routeRoot : ?Principal = if (isKnownSnsRoot(owner)) { ?owner } else {
-      switch (configFor(owner, canisterId)) {
-        case (?cfg) { cfg.snsRoot };
-        case null { null };
-      };
+    // Same rule as runCycleSweep, serially: try the remembered source, fall back
+    // to the other when it cannot answer, and flip the memory when the fallback
+    // does. One call in the steady state, two across a transition — which is how
+    // a canister moving into or out of DAO control keeps being read without a
+    // re-registration or a proposal.
+    let root = switch (configFor(owner, canisterId)) {
+      case (?cfg) { candidateRootFor(owner, cfg) };
+      case null { null };
     };
-    let cyclesOpt = switch (routeRoot) {
-      case (?root) {
-        switch (await snsRootCycles(root)) {
-          case (#ok pairs) {
-            switch (findCycles(pairs, canisterId)) {
-              case (?cycles) { recordReading(canisterId, #ok(cycles)); ?cycles };
-              case null {
-                recordReading(canisterId, #err("not found in SNS canisters summary"));
-                null;
+    var cyclesOpt : ?Nat = null;
+    var answered : ?Types.ReadSource = null;
+    // The error recorded if BOTH sources fail: always the primary's, since that
+    // names the source this canister is actually expected to answer from.
+    var primaryError : Text = "";
+
+    if (ReadRoute.primaryFor(readSource.get(canisterId), root) == #snsRoot) {
+      switch (root) {
+        case (?r) {
+          switch (await snsRootCycles(r)) {
+            case (#ok pairs) {
+              switch (findCycles(pairs, canisterId)) {
+                case (?c) { cyclesOpt := ?c; answered := ?#snsRoot };
+                case null { primaryError := "not found in SNS canisters summary" };
               };
             };
+            case (#err msg) { primaryError := msg };
           };
-          case (#err msg) { recordReading(canisterId, #err(msg)); null };
+        };
+        // Remembered #snsRoot with no association left (the stamp was cleared,
+        // or the owner is no longer a known root): only the blackhole is left.
+        case null { primaryError := "no SNS root association" };
+      };
+      if (cyclesOpt == null) {
+        switch (await blackholeStatus(canisterId)) {
+          case (#ok c) { cyclesOpt := ?c; answered := ?#blackhole };
+          case (#err _) {};
         };
       };
-      case null {
-        try {
-          switch (await blackhole().canisterStatus(canisterId)) {
-            case (#ok status) {
-              recordReading(canisterId, #ok(status.cycles));
-              ?status.cycles;
-            };
-            case (#err msg) {
-              recordReading(canisterId, #err(msg));
-              null;
+    } else {
+      switch (await blackholeStatus(canisterId)) {
+        case (#ok c) { cyclesOpt := ?c; answered := ?#blackhole };
+        case (#err msg) { primaryError := msg };
+      };
+      if (cyclesOpt == null) {
+        switch (root) {
+          case (?r) {
+            switch (await snsRootCycles(r)) {
+              case (#ok pairs) {
+                switch (findCycles(pairs, canisterId)) {
+                  case (?c) { cyclesOpt := ?c; answered := ?#snsRoot };
+                  case null {};
+                };
+              };
+              case (#err _) {};
             };
           };
-        } catch (e) {
-          recordReading(canisterId, #err("blackhole unreachable: " # e.message()));
-          null;
+          case null {};
         };
       };
     };
+
+    switch (cyclesOpt, answered) {
+      case (?cycles, ?src) {
+        recordReading(canisterId, #ok(cycles));
+        readSource.add(canisterId, src);   // flip, or confirm, the memory
+      };
+      case _ { recordReading(canisterId, #err(primaryError)) };
+    };
+
     switch (cyclesOpt) {
       case null {};
       case (?cycles) {
