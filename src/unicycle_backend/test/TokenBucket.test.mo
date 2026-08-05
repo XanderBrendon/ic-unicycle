@@ -51,3 +51,32 @@ test("sub-interval time is carried forward, not discarded", func() {
   let (_b2, ok2) = TokenBucket.tryConsume(b1, CAP, IVL, 2_000);
   assert ok2;
 });
+
+test("tryConsumeN: spends n tokens when all n are available", func() {
+  let (b, granted) = TokenBucket.tryConsumeN(TokenBucket.init(CAP), CAP, IVL, 0, 4);
+  assert granted;
+  assert b.tokens == CAP - 4;
+});
+
+test("tryConsumeN: all-or-nothing — a short bucket spends nothing", func() {
+  // Drain to 3, then ask for 4.
+  let (b0, _g) = drain(TokenBucket.init(CAP), 2, 0);
+  assert b0.tokens == 3;
+  let (b1, granted) = TokenBucket.tryConsumeN(b0, CAP, IVL, 0, 4);
+  assert not granted;
+  assert b1.tokens == 3; // untouched: a denied batch must not drain the bucket
+});
+
+test("tryConsumeN: refills before deciding", func() {
+  let (b0, _g) = drain(TokenBucket.init(CAP), CAP, 0); // empty at t=0
+  // 4 intervals later exactly 4 tokens exist, so a batch of 4 is affordable.
+  let (b1, granted) = TokenBucket.tryConsumeN(b0, CAP, IVL, 4 * IVL, 4);
+  assert granted;
+  assert b1.tokens == 0;
+});
+
+test("tryConsume still spends exactly one", func() {
+  let (b, granted) = TokenBucket.tryConsume(TokenBucket.init(CAP), CAP, IVL, 0);
+  assert granted;
+  assert b.tokens == CAP - 1;
+});
