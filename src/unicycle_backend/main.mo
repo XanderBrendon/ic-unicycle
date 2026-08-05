@@ -3260,7 +3260,10 @@ persistent actor class Unicycle(
   // are redundant across a batch — one SNS canisters summary answers every
   // canister under that root, and the blackhole already exposes a batched
   // canisterStatuses. setCanisterSuspendedFor and removeCanisterFor are
-  // synchronous, so the probes are the only awaits in the whole operation.
+  // synchronous, so the probes are the only awaits in the whole operation:
+  // two outbound calls on the SNS path, and on the plain-user path one plus at
+  // most one list_sns_canisters per tracked root for ids the blackhole could
+  // not answer (bounded per USER by maxTrackedSnsPerUser, not per entry).
   public shared ({ caller }) func batchTrackCanisters(
     entries : [BatchTrackEntry]
   ) : async Result.Result<[BatchTrackEntryResult], BatchTrackError> {
@@ -3316,7 +3319,10 @@ persistent actor class Unicycle(
     let stampRoot = Map.empty<Principal, Principal>(); // user path: matched root
     let ownerIsRoot = isKnownSnsRoot(owner);
 
-    if (ownerIsRoot) {
+    // Nothing to verify (an all-untrack batch, or every track already rejected)
+    // means nothing to probe: skip both outbound calls entirely. The SNS
+    // summary in particular fans `canister_status` out across the whole DAO.
+    if (toProbe.size() == 0) {} else if (ownerIsRoot) {
       // ONE summary for the whole batch: snsSummaryHas refetches it per id.
       switch (await snsRootCycles(owner)) {
         case (#ok pairs) { for ((id, _) in pairs.vals()) { inSummary.add(id) } };
@@ -3337,7 +3343,11 @@ persistent actor class Unicycle(
           case null { [] };
           case (?s) { s.values().toArray() };
         };
-        for (root in roots.vals()) {
+        label roots for (root in roots.vals()) {
+          // Every id already matched: stop paying for listings we cannot use.
+          // maxTrackedSnsPerUser is admin-tunable well above its default, so
+          // this bound matters.
+          if (stampRoot.size() == unresolved.size()) break roots;
           let listing = try { ?(await snsRoot(root).list_sns_canisters({})) } catch (_) { null };
           switch (listing) {
             case (?res) {
@@ -3353,8 +3363,33 @@ persistent actor class Unicycle(
       };
     };
 
-    // ---- Apply, in input order. No awaits past this point. ----
+    // ---- Apply. No awaits past this point. ----
+    // Untracks run FIRST, ahead of every track, so that swapping one canister
+    // for another at the per-owner cap succeeds whichever order the two entries
+    // arrive in — the same reason BatchTrack.precheck credits them up front.
+    // Results are collected in input order and replayed into `out` below.
+    let untrackDone = List.empty<BatchTrackEntryResult>();
+    var u = 0;
+    while (u < entries.size()) {
+      switch (verdicts[u], entries[u].intent) {
+        case (null, #untrack) {
+          untrackDone.add(
+            switch (removeCanisterFor(owner, entries[u].canisterId)) {
+              case (#ok) { #ok };
+              // Already untracked: the desired end state is satisfied.
+              case (#err(#notTracked)) { #ok };
+              case (#err other) { #untrackErr(other) };
+            }
+          );
+        };
+        case _ {};
+      };
+      u += 1;
+    };
+    let untrackResults = untrackDone.toArray();
+
     let out = List.empty<BatchTrackEntryResult>();
+    var nextUntrack = 0;
     var i = 0;
     while (i < entries.size()) {
       let e = entries[i];
@@ -3364,12 +3399,10 @@ persistent actor class Unicycle(
         case null {
           switch (e.intent) {
             case (#untrack) {
-              switch (removeCanisterFor(owner, id)) {
-                case (#ok) { out.add(#ok) };
-                // Already untracked: the desired end state is satisfied.
-                case (#err(#notTracked)) { out.add(#ok) };
-                case (#err other) { out.add(#untrackErr(other)) };
-              };
+              // Applied in the pass above; both passes visit untracks in input
+              // order, so this counter stays aligned.
+              out.add(untrackResults[nextUntrack]);
+              nextUntrack += 1;
             };
             case (#track t) {
               // Re-read `tracked` after the probes: it can move while they are

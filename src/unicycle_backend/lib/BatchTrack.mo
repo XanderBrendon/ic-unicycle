@@ -57,8 +57,22 @@ module {
     isTracked : Principal -> Bool,
     caps : Caps,
   ) : [?Types.UpsertCanisterError] {
+    // Slots this batch frees before it fills any. An entry states a desired END
+    // state, so untracking A and tracking K in one call must behave the same
+    // whichever order the two appear in — counting the frees up front is what
+    // makes the verdicts order-independent. Only ids actually tracked today
+    // free anything. Duplicates are rejected before precheck runs, so this can
+    // never exceed trackedCount; the guard just keeps the function total.
+    var freed = 0;
+    for (e in entries.vals()) {
+      switch (e.intent) {
+        case (#untrack) { if (isTracked(e.canisterId)) { freed += 1 } };
+        case (#track _) {};
+      };
+    };
+
     let out = List.empty<?Types.UpsertCanisterError>();
-    var admitted = caps.trackedCount;
+    var admitted = if (caps.trackedCount > freed) { (caps.trackedCount - freed) : Nat } else { 0 };
     for (e in entries.vals()) {
       switch (e.intent) {
         // Untracking shrinks the registry: no validation, no cap, no probe.

@@ -96,6 +96,28 @@ test("precheck: re-upserting an already-tracked canister ignores the cap", func(
   assert v[1] == ?#canisterLimitReached { maxCanistersPerOwner = 200 };
 });
 
+test("precheck: an untrack in the same batch frees a slot for a new track", func() {
+  // At the cap, swapping one canister for another. An entry states a desired
+  // END STATE, so this must hold whichever order the two entries appear in.
+  let atCap : BatchTrack.Caps = { roomy with trackedCount = 200 };
+  let onlyA = func(p : Principal) : Bool { p == a };
+  let untrackFirst = BatchTrack.precheck([untrackEntry(a), trackEntry(c, goodConfig)], onlyA, atCap);
+  assert untrackFirst[0] == null;
+  assert untrackFirst[1] == null;
+  let trackFirst = BatchTrack.precheck([trackEntry(c, goodConfig), untrackEntry(a)], onlyA, atCap);
+  assert trackFirst[0] == null;
+  assert trackFirst[1] == null;
+});
+
+test("precheck: untracking a canister that was never tracked frees nothing", func() {
+  // `b` is not tracked, so dropping it cannot make room for `c`.
+  let atCap : BatchTrack.Caps = { roomy with trackedCount = 200 };
+  let onlyA = func(p : Principal) : Bool { p == a };
+  let v = BatchTrack.precheck([untrackEntry(b), trackEntry(c, goodConfig)], onlyA, atCap);
+  assert v[0] == null;
+  assert v[1] == ?#canisterLimitReached { maxCanistersPerOwner = 200 };
+});
+
 test("probeIds: only surviving track entries are probed", func() {
   let entries = [trackEntry(a, goodConfig), untrackEntry(b), trackEntry(c, goodConfig)];
   let verdicts : [?Types.UpsertCanisterError] = [null, null, ?#zeroMinCycleBalance];
