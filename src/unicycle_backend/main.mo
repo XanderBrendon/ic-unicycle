@@ -29,6 +29,7 @@ import Tokens "lib/Tokens";
 import Errors "lib/Errors";
 import Settings "lib/Settings";
 import Tracking "lib/Tracking";
+import ReadRoute "lib/ReadRoute";
 import Loyalty "lib/Loyalty";
 import SwapMath "lib/SwapMath";
 import History "lib/History";
@@ -469,6 +470,17 @@ persistent actor class Unicycle(
   // non-trackers cannot peek. Cross-owner cleanup on removal lives in
   // `removeTrackedEntry` — the row is dropped iff no owner still tracks it.
   let cycleHistory : Map.Map<Principal, [CycleReading]> = Map.empty();
+
+  // Which source last produced a successful reading for a canister. Keyed by
+  // canister id only, exactly like `cycleHistory` — the read source is a
+  // property of the canister, not of the principal tracking it. Cheap to lose:
+  // an absent entry falls back to ReadRoute.primaryFor's structural rule (which
+  // reproduces the pre-`readSource` routing) and the next successful read
+  // re-seeds it. A brand-new top-level stable variable, so no migration —
+  // MIG-2 governs shape changes to records already inside a Map, and this map
+  // is new rather than changed. Dropped in `removeTrackedEntry` when the last
+  // owner stops tracking the canister.
+  let readSource : Map.Map<Principal, Types.ReadSource> = Map.empty();
 
   // Per-caller top-up attempts: owner → canister → newest-first capped at
   // settings.maxTopUpsPerCanister. Top-ups are keyed by owner because each one
@@ -2619,6 +2631,35 @@ persistent actor class Unicycle(
     };
   };
 
+  // The SNS root a tracked entry can be read through, if any: an entry owned by
+  // a root contributes that root; a user's entry contributes the stamp
+  // `trackedSnsMatch` left on it. null = blackhole-only, no root to fall back to.
+  func candidateRootFor(owner : Principal, cfg : CanisterConfig) : ?Principal {
+    if (isKnownSnsRoot(owner)) { ?owner } else { cfg.snsRoot };
+  };
+
+  // Single-canister blackhole read, flattening "unreachable / trapped" into the
+  // same #err shape as a not-a-controller response — every caller treats the two
+  // identically and falls through to the other source.
+  func blackholeStatus(canisterId : Principal) : async Result.Result<Nat, Text> {
+    try {
+      switch (await blackhole().canisterStatus(canisterId)) {
+        case (#ok status) { #ok(status.cycles) };
+        case (#err msg) { #err(msg) };
+      };
+    } catch (e) { #err("blackhole unreachable: " # e.message()) };
+  };
+
+  // Does `root`'s canister summary list `canisterId`? A trapping or unreachable
+  // root reads as "no" so callers fall through to the blackhole rather than
+  // failing outright.
+  func snsSummaryHas(root : Principal, canisterId : Principal) : async Bool {
+    switch (await snsRootCycles(root)) {
+      case (#ok pairs) { findCycles(pairs, canisterId) != null };
+      case (#err _) { false };
+    };
+  };
+
   func checkCanister(owner : Principal, canisterId : Principal) : async () {
     // Same routing rule as runCycleSweep: owner-is-root or a stamped entry
     // reads via the SNS root summary; only genuinely blackholed entries go to
@@ -3093,7 +3134,7 @@ persistent actor class Unicycle(
     canisterId : Principal,
     config : CanisterConfig,
   ) : async Result.Result<(), UpsertCanisterError> {
-    await upsertCanisterFor(caller, canisterId, config, true);
+    await upsertCanisterFor(caller, canisterId, config, #user);
   };
 
   // Keep the blackhole controllership precondition isolated in this one helper:
@@ -3105,7 +3146,7 @@ persistent actor class Unicycle(
     caller : Principal,
     canisterId : Principal,
     config : CanisterConfig,
-    enforceGlobalLimit : Bool,
+    origin : ReadRoute.UpsertOrigin,
   ) : async Result.Result<(), UpsertCanisterError> {
     if (caller.isAnonymous()) return #err(#anonymous);
     if (config.minCycleBalance == 0) return #err(#zeroMinCycleBalance);
@@ -3136,46 +3177,66 @@ persistent actor class Unicycle(
       };
     };
 
-    // Global rate limit (DOS-2): user path only. After the caps so a rejected
-    // call spends no token; before the probe so the bucket bounds the
-    // backend-paid outbound rate.
-    if (enforceGlobalLimit and not consumeGlobalToken()) return #err(#rateLimited);
+    // Global rate limit (DOS-2): user and admin paths only. A passed proposal
+    // must execute, never be throttled. After the caps so a rejected call
+    // spends no token; before the probe so the bucket bounds the backend-paid
+    // outbound rate.
+    if (origin != #snsProposal and not consumeGlobalToken()) return #err(#rateLimited);
 
-    // Controllership precondition. SNS-controlled entries (caller is a known SNS
-    // root) are confirmed via the root's canister summary — no blackhole
-    // controllership needed; everyone else via the blackhole probe, falling
-    // back to membership in one of the caller's tracked SNSes. The stored
-    // config's snsRoot stamp always reflects this verification outcome:
-    // null for blackhole/SNS-root paths, ?root for the tracked-SNS fallback.
+    // Verification. An SNS-owned entry (caller is a known SNS root) is confirmed
+    // via the root's canister summary, or — new — via the blackhole when the
+    // canister sits outside the DAO's control set; ReadRoute.gate decides
+    // whether that second case may be REGISTERED, which only governance may do.
+    // A plain user is confirmed via the blackhole probe, falling back to
+    // membership in one of the caller's tracked SNSes. `verifiedSnsRoot` still
+    // stamps only the user fallback; `verifiedSource` seeds `readSource` so the
+    // first sweep after registration reads through the right source.
     var verifiedSnsRoot : ?Principal = null;
+    var verifiedSource : Types.ReadSource = #blackhole;
     if (isKnownSnsRoot(caller)) {
-      switch (await snsRootCycles(caller)) {
-        case (#err reason) {
-          return #err(#snsRootNotController { snsRootCanisterId = caller; blackholeCanisterId = blackholeId; reason });
-        };
-        case (#ok pairs) {
-          if (findCycles(pairs, canisterId) == null) {
-            return #err(#snsRootNotController { snsRootCanisterId = caller; blackholeCanisterId = blackholeId; reason = "canister not found in SNS canisters summary" });
-          };
+      let alreadyTracked = switch (tracked.get(caller)) {
+        case null { false };
+        case (?m) { m.get(canisterId) != null };
+      };
+      // Probe order. A NEW registration must consult the summary first: the gate
+      // turns on DAO control, and a `readSource` entry could have been seeded by
+      // a different owner tracking the same canister. For an entry this root
+      // already tracks the gate allows either source, so start with the
+      // remembered one and skip the second probe when it answers.
+      let snsFirst =
+        not alreadyTracked
+        or ReadRoute.primaryFor(readSource.get(canisterId), ?caller) == #snsRoot;
+      var inSummary = false;
+      var blackholeOk = false;
+      if (snsFirst) {
+        inSummary := await snsSummaryHas(caller, canisterId);
+        if (not inSummary) {
+          blackholeOk := Result.isOk(await blackholeStatus(canisterId));
+        } else { blackholeOk := true };
+      } else {
+        blackholeOk := Result.isOk(await blackholeStatus(canisterId));
+        if (not blackholeOk) { inSummary := await snsSummaryHas(caller, canisterId) };
+      };
+      switch (ReadRoute.gate(origin, alreadyTracked, inSummary, blackholeOk)) {
+        case (#allow src) { verifiedSource := src };
+        case (#requiresProposal) { return #err(#requiresProposal { canisterId }) };
+        case (#unverifiable) {
+          return #err(#snsRootNotController {
+            snsRootCanisterId = caller;
+            blackholeCanisterId = blackholeId;
+            reason = "not in the SNS canisters summary, and the blackhole is not a controller";
+          });
         };
       };
     } else {
-      let probe = try {
-        #ok(await blackhole().canisterStatus(canisterId));
-      } catch (e) {
-        #err("blackhole unreachable: " # e.message());
-      };
-      let blackholeFailure : ?UpsertCanisterError = switch (probe) {
-        case (#err reason) { ?(#blackholeNotController { blackholeCanisterId = blackholeId; reason }) };
-        case (#ok(#err msg)) { ?(#blackholeNotController { blackholeCanisterId = blackholeId; reason = msg }) };
-        case (#ok(#ok _status)) { null /* controllership confirmed */ };
-      };
-      switch (blackholeFailure) {
-        case null {};
-        case (?failure) {
+      switch (await blackholeStatus(canisterId)) {
+        case (#ok _) { verifiedSource := #blackhole };
+        case (#err reason) {
           switch (await trackedSnsMatch(caller, canisterId)) {
-            case (?root) { verifiedSnsRoot := ?root };
-            case null { return #err(failure) };
+            case (?root) { verifiedSnsRoot := ?root; verifiedSource := #snsRoot };
+            case null {
+              return #err(#blackholeNotController { blackholeCanisterId = blackholeId; reason });
+            };
           };
         };
       };
@@ -3193,6 +3254,9 @@ persistent actor class Unicycle(
     let merged = Tracking.mergeConfig(prior, config);
     let stored = { merged with snsRoot = verifiedSnsRoot };
     userMap.add(canisterId, stored);
+    // Seed the remembered source from whichever check just passed, so a new
+    // entry never pays a repair pass on its first sweep.
+    readSource.add(canisterId, verifiedSource);
     // Audit the tracking-config change. Without this, a later threshold raise is
     // indistinguishable in the cycle history from a missed top-up: an old reading
     // that was fine under the threshold then in effect looks below-threshold once
@@ -3545,7 +3609,7 @@ persistent actor class Unicycle(
 
   public shared ({ caller }) func snsUpsertCanister(arg : SnsUpsertCanisterArg) : async () {
     let root = requireSnsRoot(await resolveSnsRoot(caller), "snsUpsertCanister");
-    switch (await upsertCanisterFor(root, arg.canisterId, arg.config, false)) {
+    switch (await upsertCanisterFor(root, arg.canisterId, arg.config, #snsProposal)) {
       case (#ok _) {};
       case (#err e) { Runtime.trap("snsUpsertCanister: " # debug_show e) };
     };
@@ -3911,7 +3975,7 @@ persistent actor class Unicycle(
     config : CanisterConfig,
   ) : async Result.Result<(), UpsertCanisterError> {
     requireSnsAdmin(caller, root, "asSnsUpsertCanister");
-    await upsertCanisterFor(root, canisterId, config, true);
+    await upsertCanisterFor(root, canisterId, config, #snsAdmin);
   };
 
   public shared ({ caller }) func asSnsSetCanisterSuspended(
