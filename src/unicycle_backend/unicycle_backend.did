@@ -85,6 +85,8 @@ type Unicycle =
    adminSubmitSnsTestMotion: (governance: principal, summary: text) ->
     (Result_9);
    amIAdmin: () -> (bool) query;
+   asSnsBatchTrackCanisters: (root: principal, entries: vec BatchTrackEntry) ->
+    (Result_BatchTrack);
    asSnsGetCanisterHistory: (root: principal, canisterId: principal) ->
     (opt CanisterHistory) query;
    asSnsGetFleetSummary: (root: principal) -> (vec CanisterHistory) query;
@@ -105,6 +107,7 @@ type Unicycle =
     suspend: bool) -> (Result_4);
    asSnsUpsertCanister: (root: principal, canisterId: principal, config:
     CanisterConfig) -> (Result_1);
+   batchTrackCanisters: (entries: vec BatchTrackEntry) -> (Result_BatchTrack);
    deposit: (token: Token, amount: nat) -> (Result_8);
    getAdminSettings: () -> (Result_7) query;
    getAdmins: () -> (vec principal) query;
@@ -289,6 +292,41 @@ type SnsUpsertCanisterArg =
  record {
    canisterId: principal;
    config: CanisterConfig;
+ };
+type BatchTrackIntent =
+ variant {
+   track: record {
+            config: CanisterConfig;
+            suspended: bool;
+          };
+   untrack;
+ };
+type BatchTrackEntry =
+ record {
+   canisterId: principal;
+   intent: BatchTrackIntent;
+ };
+type BatchTrackEntryResult =
+ variant {
+   ok;
+   suspendErr: SuspendCanisterError;
+   untrackErr: RemoveCanisterError;
+   upsertErr: UpsertCanisterError;
+ };
+type BatchTrackError =
+ variant {
+   anonymous;
+   duplicateEntry: record {canisterId: principal;};
+   rateLimited;
+   tooManyEntries: record {
+                     got: nat;
+                     max: nat;
+                   };
+ };
+type Result_BatchTrack =
+ variant {
+   err: BatchTrackError;
+   ok: vec BatchTrackEntryResult;
  };
 type SnsSetupArg =
  record {
