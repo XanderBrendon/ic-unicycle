@@ -289,6 +289,41 @@ module {
     #topUpInFlight;
   };
 
+  // A batch tracking entry states one canister's DESIRED END STATE, not a
+  // sequence of operations — the backend reconciles. `track` covers both the
+  // Tracked and Suspended rows of a group edit; `untrack` is a no-op when the
+  // canister is not tracked, because the desired end state is already true.
+  public type BatchTrackIntent = {
+    #track : { config : CanisterConfig; suspended : Bool };
+    #untrack;
+  };
+
+  public type BatchTrackEntry = {
+    canisterId : Principal;
+    intent : BatchTrackIntent;
+  };
+
+  // Positionally aligned with the request's entry vector — same length, same
+  // order. The three error arms reuse the single-canister error types so
+  // callers keep their existing formatters and, in particular, so
+  // `#requiresProposal` survives per entry instead of being flattened to text.
+  public type BatchTrackEntryResult = {
+    #ok;
+    #upsertErr : UpsertCanisterError;
+    #suspendErr : SuspendCanisterError;
+    #untrackErr : RemoveCanisterError;
+  };
+
+  // Whole-call failures: nothing ran, nothing was mutated. Everything else is
+  // reported per entry, because partial success is the expected outcome of a
+  // batch rather than an error path.
+  public type BatchTrackError = {
+    #anonymous;
+    #rateLimited;
+    #tooManyEntries : { max : Nat; got : Nat };
+    #duplicateEntry : { canisterId : Principal };
+  };
+
   public type AddTrackedSnsError = {
     #anonymous;
     #notAnSnsRoot;
