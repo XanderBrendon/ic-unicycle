@@ -46,3 +46,32 @@ test("drainAlertSummary renders thresholds, disabled checks and cooldown", func(
   assert Text.contains(s, #text "day-over-day threshold: 200% (unchanged)");
   assert Text.contains(s, #text "alert cooldown: 3 day(s) → none");
 });
+
+let proposeTarget = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
+
+func upsertArg(min : Nat, top : Nat) : Types.SnsUpsertCanisterArg {
+  {
+    canisterId = proposeTarget;
+    config = {
+      minCycleBalance = min;
+      cycleTopUpAmount = top;
+      suspendedUntil = null;
+      nickname = null;
+      snsRoot = null;
+    };
+  };
+};
+
+test("upsertSummary warns when the canister is outside the DAO's control", func() {
+  let s = SnsPropose.upsertSummary(null, upsertArg(1_000_000_000_000, 500_000_000_000), false, admin);
+  assert Text.contains(s, #text "not controlled by this SNS");
+  assert Text.contains(s, #text "outside the DAO's control");
+  assert Text.contains(s, #text (proposeTarget.toText()));
+  assert Text.contains(s, #text "min balance: not set → 1 TC");
+});
+
+test("upsertSummary omits the warning for a DAO-controlled canister", func() {
+  let s = SnsPropose.upsertSummary(null, upsertArg(1_000_000_000_000, 500_000_000_000), true, admin);
+  assert not Text.contains(s, #text "not controlled by this SNS");
+  assert Text.contains(s, #text "top-up amount: not set → 0.5 TC");
+});

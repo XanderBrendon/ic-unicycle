@@ -85,4 +85,38 @@ module {
     # line("alert cooldown", mapCur(current, cool), cool(next))
     # footer(admin);
   };
+
+  // smallest-units → human TC text, mirroring `icpText` for the 12-decimal
+  // cycles ledger: "1 TC", "0.5 TC".
+  func tcText(v : Nat) : Text {
+    NumFmt.decimal(v, 12) # " TC";
+  };
+
+  // Summary for an admin-initiated tracking proposal. When the canister is not
+  // in the SNS's canister summary the DAO does not control it, and the text says
+  // so first and without hedging: voters are being asked to commit recurring
+  // DAO-funded top-ups to a canister they cannot govern, which is the whole
+  // reason this action is proposal-gated rather than an admin action.
+  public func upsertSummary(
+    current : ?Types.CanisterConfig,
+    next : Types.SnsUpsertCanisterArg,
+    daoControlled : Bool,
+    admin : Principal,
+  ) : Text {
+    let header = if (daoControlled) {
+      "This proposal registers or updates a tracked canister's Unicycle top-up configuration.\n\n";
+    } else {
+      "\u{26a0} This canister is not controlled by this SNS. It does not appear in the SNS's "
+      # "canister summary. Unicycle can read its cycle balance because the blackhole canister is "
+      # "one of its controllers. Approving this proposal commits SNS-funded cycle top-ups to a "
+      # "canister outside the DAO's control.\n\n";
+    };
+    func minText(c : Types.CanisterConfig) : Text = tcText(c.minCycleBalance);
+    func topText(c : Types.CanisterConfig) : Text = tcText(c.cycleTopUpAmount);
+    header
+    # "canister: " # next.canisterId.toText() # "\n"
+    # line("min balance", mapCur(current, minText), tcText(next.config.minCycleBalance)) # "\n"
+    # line("top-up amount", mapCur(current, topText), tcText(next.config.cycleTopUpAmount))
+    # footer(admin);
+  };
 };

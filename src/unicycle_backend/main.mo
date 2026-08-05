@@ -4197,6 +4197,22 @@ persistent actor class Unicycle(
     await proposeSnsConfigChange(caller, root, "snsSetDrainAlertConfig", "Unicycle: update cycle drain alerts", summary, to_candid (arg));
   };
 
+  public shared ({ caller }) func asSnsProposeUpsertCanister(
+    root : Principal,
+    arg : SnsUpsertCanisterArg,
+  ) : async Result.Result<Nat, Text> {
+    requireSnsAdmin(caller, root, "asSnsProposeUpsertCanister");
+    // Unlike its siblings this one reads the SNS summary before submitting —
+    // not as a gate (the authoritative check runs when governance executes the
+    // twin) but so the rendered summary can state whether the canister is
+    // outside the DAO's control. Admins normally arrive here from a
+    // `#requiresProposal` rejection, which already established that the
+    // blackhole can read it.
+    let daoControlled = await snsSummaryHas(root, arg.canisterId);
+    let summary = SnsPropose.upsertSummary(configFor(root, arg.canisterId), arg, daoControlled, caller);
+    await proposeSnsConfigChange(caller, root, "snsUpsertCanister", "Unicycle: track canister", summary, to_candid (arg));
+  };
+
   // ---------------------------------------------------------------------------
   // Automatic deposit top-up config (US24). An SNS configures a minimum balance
   // and a deposit amount (both ICP e8s) for its Unicycle deposit subaccount; the
@@ -5580,6 +5596,7 @@ persistent actor class Unicycle(
         #asSnsProposeSetDepositConfig : Any;
         #asSnsProposeSetDrainAlertConfig : Any;
         #asSnsProposeSetReportConfig : Any;
+        #asSnsProposeUpsertCanister : Any;
         #asSnsRecordCyclesNow : Any;
         #asSnsRemoveCanister : Any;
         #asSnsSetCanisterSuspended : Any;
@@ -5704,7 +5721,7 @@ persistent actor class Unicycle(
         or #removeCanister _ or #addTrackedSns _ or #removeTrackedSns _ or #asSnsUpsertCanister _
         or #asSnsSetCanisterSuspended _ or #asSnsRemoveCanister _ or #asSnsRecordCyclesNow _
         or #asSnsProposeSetDepositConfig _ or #asSnsProposeSetReportConfig _
-        or #asSnsProposeSetDrainAlertConfig _
+        or #asSnsProposeSetDrainAlertConfig _ or #asSnsProposeUpsertCanister _
       ) { not caller.isAnonymous() };
 
       // Queries never reach inspect; public SNS reads / `*Validate` twins accept.

@@ -95,6 +95,8 @@ type Unicycle =
     SnsSetDrainAlertConfigArg) -> (Result_9);
    asSnsProposeSetReportConfig: (root: principal, arg: SnsSetReportConfigArg) ->
     (Result_9);
+   asSnsProposeUpsertCanister: (root: principal, arg: SnsUpsertCanisterArg) ->
+    (Result_9);
    asSnsRecordCyclesNow: (root: principal, canisterId: principal) ->
     (Result_6);
    asSnsRemoveCanister: (root: principal, canisterId: principal) ->
