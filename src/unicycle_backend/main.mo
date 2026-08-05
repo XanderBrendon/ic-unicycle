@@ -2804,112 +2804,186 @@ persistent actor class Unicycle(
     cycleCheckInFlight := false;
   };
 
+  // One blackhole batch call: fills `resolved` for every id that answered and
+  // `failure` for every id that did not. Shared by the sweep's pass 1 and its
+  // repair pass so both handle a failed, short, or per-id-erroring response
+  // identically. A no-op on an empty id list — the repair pass usually is.
+  func readViaBlackhole(
+    ids : [Principal],
+    resolved : Map.Map<Principal, Nat>,
+    failure : Map.Map<Principal, Text>,
+  ) : async () {
+    if (ids.size() == 0) return;
+    let outcome = try {
+      #ok(await blackhole().canisterStatuses(ids, settings.batchSize));
+    } catch (e) {
+      #err("blackhole unreachable: " # e.message());
+    };
+    switch (outcome) {
+      case (#err msg) {
+        log(#error, #timer, "cycle check batch failed: " # msg, null);
+        for (canisterId in ids.vals()) { failure.add(canisterId, "batch failed: " # msg) };
+      };
+      case (#ok(#err msg)) {
+        log(#error, #timer, "cycle check batch failed: " # msg, null);
+        for (canisterId in ids.vals()) { failure.add(canisterId, "batch failed: " # msg) };
+      };
+      case (#ok(#ok results)) {
+        let n = if (results.size() < ids.size()) results.size() else ids.size();
+        var i = 0;
+        while (i < n) {
+          switch (results[i]) {
+            case (#ok status) { resolved.add(ids[i], status.cycles) };
+            case (#err msg) { failure.add(ids[i], msg) };
+          };
+          i += 1;
+        };
+        // Guard against a short response: record an explicit error for any tail
+        // id so a partial answer doesn't silently disappear.
+        while (i < ids.size()) {
+          failure.add(ids[i], "batch length mismatch: no reading returned");
+          i += 1;
+        };
+      };
+    };
+  };
+
   func runCycleSweep() : async () {
-    // Route each unique tracked canister to a reading source, three ways:
-    // owner-is-root reads via that root's summary (SNS-controlled entries store
-    // the root as `owner`); a plain user's entry stamped `config.snsRoot == ?r`
-    // reads via root `r`'s summary (such stamped canisters have NO blackhole
-    // controller — the blackhole batch would only record errors for them);
-    // everything else reads via the blackhole batch. When several owners track
-    // the same canister, the SNS route wins over blackhole (the blackhole read
-    // would fail anyway; the root summary serves every entry's classification).
-    // One reading per canister per firing, regardless of how many owners track it.
-    let roots = Set.empty<Principal>();
-    for (r in snsRootByGovernance.values()) { roots.add(r) };
-
-    let routeByCanister = Map.empty<Principal, ?Principal>(); // canisterId → ?root (null = blackhole)
+    // Candidate root per canister: the first non-null found while iterating
+    // owners (a root owner contributes itself, a stamped user entry its stamp).
+    // Which of two competing roots wins is unspecified and does not matter —
+    // either resolves the same canister, and a canister reachable from two
+    // roots is pathological. One reading per canister per firing regardless of
+    // how many owners track it.
+    let rootOf = Map.empty<Principal, Principal>();
+    let allIds = Set.empty<Principal>();
     for ((owner, userMap) in tracked.entries()) {
-      let ownerIsRoot = roots.contains(owner);
       for ((canisterId, cfg) in userMap.entries()) {
-        let routeRoot : ?Principal = if (ownerIsRoot) { ?owner } else { cfg.snsRoot };
-        switch (routeByCanister.get(canisterId), routeRoot) {
-          case (null, _) { routeByCanister.add(canisterId, routeRoot) };
-          case (?null, ?r) { routeByCanister.add(canisterId, ?r) }; // upgrade blackhole → SNS
-          case _ {};
-        };
-      };
-    };
-    if (routeByCanister.size() == 0) return;
-
-    let blackholeIds = List.empty<Principal>();
-    let snsCanisterRoot = Map.empty<Principal, Principal>(); // canisterId → root to read via
-    for ((canisterId, route) in routeByCanister.entries()) {
-      switch (route) {
-        case (?r) { snsCanisterRoot.add(canisterId, r) };
-        case null { blackholeIds.add(canisterId) };
-      };
-    };
-
-    // One reading per canister; the top-up snapshot below reads from this.
-    let readingByCanister = Map.empty<Principal, Nat>();
-
-    // --- Blackhole bucket: the single batch call for non-SNS canisters. ---
-    let blackholeArr = blackholeIds.toArray();
-    if (blackholeArr.size() > 0) {
-      let outcome = try {
-        #ok(await blackhole().canisterStatuses(blackholeArr, settings.batchSize));
-      } catch (e) {
-        #err("blackhole unreachable: " # e.message());
-      };
-      switch (outcome) {
-        case (#err msg) {
-          log(#error, #timer, "cycle check batch failed: " # msg, null);
-          for (canisterId in blackholeArr.vals()) { recordReading(canisterId, #err("batch failed: " # msg)) };
-        };
-        case (#ok(#err msg)) {
-          log(#error, #timer, "cycle check batch failed: " # msg, null);
-          for (canisterId in blackholeArr.vals()) { recordReading(canisterId, #err("batch failed: " # msg)) };
-        };
-        case (#ok(#ok results)) {
-          let n = if (results.size() < blackholeArr.size()) results.size() else blackholeArr.size();
-          var i = 0;
-          while (i < n) {
-            let canisterId = blackholeArr[i];
-            switch (results[i]) {
-              case (#ok status) {
-                recordReading(canisterId, #ok(status.cycles));
-                readingByCanister.add(canisterId, status.cycles);
-              };
-              case (#err msg) { recordReading(canisterId, #err(msg)) };
-            };
-            i += 1;
-          };
-          // Guard against the blackhole returning fewer results than ids — record
-          // an explicit error for any tail id so a partial response doesn't
-          // silently disappear.
-          while (i < blackholeArr.size()) {
-            let canisterId = blackholeArr[i];
-            recordReading(canisterId, #err("batch length mismatch: no reading returned"));
-            i += 1;
+        allIds.add(canisterId);
+        if (rootOf.get(canisterId) == null) {
+          switch (candidateRootFor(owner, cfg)) {
+            case (?r) { rootOf.add(canisterId, r) };
+            case null {};
           };
         };
       };
     };
+    if (allIds.size() == 0) return;
 
-    // --- SNS bucket: one get_sns_canisters_summary per distinct root. ---
-    let canistersByRoot = Map.empty<Principal, List.List<Principal>>();
-    for ((canisterId, root) in snsCanisterRoot.entries()) {
-      switch (canistersByRoot.get(root)) {
+    // Pass 1 buckets, from the remembered source. With nothing remembered
+    // ReadRoute.primaryFor reproduces the pre-`readSource` routing exactly, so
+    // this makes precisely the calls the sweep made before: one summary per
+    // distinct root, one blackhole batch.
+    let snsBucket = Map.empty<Principal, Principal>();   // canisterId -> root
+    let bhBucket = List.empty<Principal>();
+    for (canisterId in allIds.values()) {
+      let root = rootOf.get(canisterId);
+      switch (ReadRoute.primaryFor(readSource.get(canisterId), root), root) {
+        case (#snsRoot, ?r) { snsBucket.add(canisterId, r) };
+        // Remembered #snsRoot but no association left: the blackhole is all
+        // that remains to try.
+        case (#snsRoot, null) { bhBucket.add(canisterId) };
+        case (#blackhole, _) { bhBucket.add(canisterId) };
+      };
+    };
+
+    let resolved = Map.empty<Principal, Nat>();          // canisterId -> cycles
+    let failure = Map.empty<Principal, Text>();          // canisterId -> pass-1 error
+    let summaryCache = Map.empty<Principal, [(Principal, Nat)]>();  // root -> pairs
+
+    // --- Pass 1, blackhole bucket. ---
+    await readViaBlackhole(bhBucket.toArray(), resolved, failure);
+
+    // --- Pass 1, SNS bucket: one get_sns_canisters_summary per distinct root. ---
+    let byRoot = Map.empty<Principal, List.List<Principal>>();
+    for ((canisterId, root) in snsBucket.entries()) {
+      switch (byRoot.get(root)) {
         case (?l) { l.add(canisterId) };
-        case null { let l = List.empty<Principal>(); l.add(canisterId); canistersByRoot.add(root, l) };
+        case null { let l = List.empty<Principal>(); l.add(canisterId); byRoot.add(root, l) };
       };
     };
-    for ((root, canisterList) in canistersByRoot.entries()) {
+    for ((root, ids) in byRoot.entries()) {
       switch (await snsRootCycles(root)) {
         case (#ok pairs) {
-          for (canisterId in canisterList.values()) {
+          summaryCache.add(root, pairs);
+          for (canisterId in ids.values()) {
             switch (findCycles(pairs, canisterId)) {
-              case (?cycles) { recordReading(canisterId, #ok(cycles)); readingByCanister.add(canisterId, cycles) };
-              case null { recordReading(canisterId, #err("not found in SNS canisters summary")) };
+              case (?cycles) { resolved.add(canisterId, cycles) };
+              case null { failure.add(canisterId, "not found in SNS canisters summary") };
             };
           };
         };
         case (#err msg) {
           log(#error, #timer, "sns root summary failed for " # root.toText() # ": " # msg, null);
-          for (canisterId in canisterList.values()) { recordReading(canisterId, #err("sns root summary failed: " # msg)) };
+          for (canisterId in ids.values()) { failure.add(canisterId, "sns root summary failed: " # msg) };
         };
       };
     };
+
+    // --- Pass 2: repair what pass 1 could not read, and flip the remembered
+    // source when the other one answers. This is what makes a canister moving
+    // into or out of DAO control keep working with no proposal and no
+    // re-registration. A root-level failure falls through as well as a
+    // per-canister miss, so a blackhole-mode entry does not break whenever its
+    // root has a bad minute. In the steady state both lists are empty and this
+    // costs nothing. ---
+    let repairViaBlackhole = List.empty<Principal>();
+    let repairViaRoot = List.empty<(Principal, Principal)>();
+    for ((canisterId, _msg) in failure.entries()) {
+      if (snsBucket.get(canisterId) != null) {
+        repairViaBlackhole.add(canisterId);
+      } else {
+        switch (rootOf.get(canisterId)) {
+          case (?r) { repairViaRoot.add((canisterId, r)) };
+          case null {};   // blackhole-only with no root to try: nothing to repair
+        };
+      };
+    };
+
+    if (repairViaBlackhole.size() > 0) {
+      let repaired = Map.empty<Principal, Nat>();
+      // Repair failures are discarded: the reading keeps pass 1's error, which
+      // names the source the canister is expected to answer from. `readSource`
+      // is left alone too, so a genuinely dead canister does not thrash its mode.
+      let discarded = Map.empty<Principal, Text>();
+      await readViaBlackhole(repairViaBlackhole.toArray(), repaired, discarded);
+      for ((canisterId, cycles) in repaired.entries()) {
+        resolved.add(canisterId, cycles);
+        ignore failure.delete(canisterId);
+        readSource.add(canisterId, #blackhole);
+      };
+    };
+
+    for ((canisterId, root) in repairViaRoot.values()) {
+      // Free when pass 1 already fetched this root's summary.
+      let pairs = switch (summaryCache.get(root)) {
+        case (?p) { ?p };
+        case null {
+          switch (await snsRootCycles(root)) {
+            case (#ok p) { summaryCache.add(root, p); ?p };
+            case (#err _) { null };
+          };
+        };
+      };
+      switch (pairs) {
+        case (?p) {
+          switch (findCycles(p, canisterId)) {
+            case (?cycles) {
+              resolved.add(canisterId, cycles);
+              ignore failure.delete(canisterId);
+              readSource.add(canisterId, #snsRoot);
+            };
+            case null {};
+          };
+        };
+        case null {};
+      };
+    };
+
+    // One reading per canister, recorded after every read has settled.
+    for ((canisterId, cycles) in resolved.entries()) { recordReading(canisterId, #ok(cycles)) };
+    for ((canisterId, msg) in failure.entries()) { recordReading(canisterId, #err(msg)) };
+    let readingByCanister = resolved;
 
     // Snapshot below-threshold (owner, canisterId, cycleTopUpAmount) candidates
     // and expired-suspension removals from `tracked` AFTER all the read awaits.
