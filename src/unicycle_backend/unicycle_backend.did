@@ -15,8 +15,10 @@ type UpsertCanisterError =
    canisterLimitReached: record {maxCanistersPerOwner: nat;};
    ownerLimitReached: record {maxOwners: nat;};
    rateLimited;
+   requiresProposal: record {canisterId: principal;};
    snsRootNotController:
     record {
+      blackholeCanisterId: principal;
       reason: text;
       snsRootCanisterId: principal;
     };

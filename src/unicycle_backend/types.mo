@@ -254,7 +254,19 @@ module {
     #zeroMinCycleBalance;
     #zeroCycleTopUpAmount;
     #blackholeNotController : { blackholeCanisterId : Principal; reason : Text };
-    #snsRootNotController : { snsRootCanisterId : Principal; reason : Text };
+    // Neither source can read the canister: it is not in the SNS's canister
+    // summary AND the blackhole is not a controller. Carries the blackhole id
+    // like `#blackholeNotController` does, so the frontend can offer the
+    // add-controller command as one of the two remedies.
+    #snsRootNotController : {
+      snsRootCanisterId : Principal;
+      blackholeCanisterId : Principal;
+      reason : Text;
+    };
+    // Readable via the blackhole, but outside the DAO's control set and not yet
+    // tracked — only a governance proposal may register it. Admins reach
+    // `asSnsProposeUpsertCanister` from here.
+    #requiresProposal : { canisterId : Principal };
     #ownerLimitReached : { maxOwners : Nat };
     #canisterLimitReached : { maxCanistersPerOwner : Nat };
     #rateLimited;

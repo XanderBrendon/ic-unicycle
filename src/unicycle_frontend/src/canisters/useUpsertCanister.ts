@@ -84,14 +84,24 @@ export function formatUpsertCanisterError(
         message: 'Too many requests in a short window — wait a few seconds and try again.',
       };
     case 'snsRootNotController': {
-      const { snsRootCanisterId, reason } = err.snsRootNotController;
+      const { snsRootCanisterId, blackholeCanisterId, reason } = err.snsRootNotController;
       return {
         message:
-          "Unicycle can't read this canister's cycle balance: it isn't controlled by the SNS root " +
-          "(it doesn't appear in the SNS's canister summary). Register it with the SNS before tracking it.",
+          "Unicycle can't read this canister's cycle balance. It isn't in the SNS's canister " +
+          "summary, so the DAO doesn't control it, and the blackhole canister isn't one of its " +
+          'controllers either. Register it with the SNS, or add the blackhole as a controller and ' +
+          'try again.',
         detail: `SNS root ${snsRootCanisterId.toText()} said: ${reason}`,
+        command: `icp canister settings update ${target.toText()} --add-controller ${blackholeCanisterId.toText()} -n ic`,
       };
     }
+    case 'requiresProposal':
+      return {
+        message:
+          "This canister isn't controlled by the DAO. Unicycle can read it — the blackhole " +
+          'canister is a controller — but adding a canister outside the DAO to its fleet has to ' +
+          'be approved by SNS voters, so it needs a proposal rather than an admin action.',
+      };
     default: {
       const _exhaustive: never = err;
       return { message: 'Unknown error.', detail: JSON.stringify(_exhaustive) };

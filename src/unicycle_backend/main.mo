@@ -3151,11 +3151,11 @@ persistent actor class Unicycle(
     if (isKnownSnsRoot(caller)) {
       switch (await snsRootCycles(caller)) {
         case (#err reason) {
-          return #err(#snsRootNotController { snsRootCanisterId = caller; reason });
+          return #err(#snsRootNotController { snsRootCanisterId = caller; blackholeCanisterId = blackholeId; reason });
         };
         case (#ok pairs) {
           if (findCycles(pairs, canisterId) == null) {
-            return #err(#snsRootNotController { snsRootCanisterId = caller; reason = "canister not found in SNS canisters summary" });
+            return #err(#snsRootNotController { snsRootCanisterId = caller; blackholeCanisterId = blackholeId; reason = "canister not found in SNS canisters summary" });
           };
         };
       };
@@ -3830,7 +3830,14 @@ persistent actor class Unicycle(
     if (not set.contains(root)) return #ok(0);
     let stamped = switch (tracked.get(caller)) {
       case null { [] };
-      case (?userMap) { Tracking.stampedWith(userMap.entries().toArray(), root) };
+      case (?userMap) {
+        // Every stamped entry still reads through its root here: `readSource`
+        // does not exist yet, so there is nothing that could have flipped.
+        // Replaced by the real per-entry lookup once it does.
+        let withSource = List.empty<(Principal, CanisterConfig, Types.ReadSource)>();
+        for ((id, cfg) in userMap.entries()) { withSource.add((id, cfg, #snsRoot)) };
+        Tracking.stampedWith(withSource.toArray(), root);
+      };
     };
     for (canisterId in stamped.vals()) {
       if (inFlightContains(caller, canisterId)) return #err(#topUpInFlight);
